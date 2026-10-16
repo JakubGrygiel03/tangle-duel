@@ -15,6 +15,7 @@ import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
 
 const VICTORY_MS = 1500;
+const INTRO_MS = 1100;
 
 export function GameBoard() {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -22,6 +23,7 @@ export function GameBoard() {
   const synthRef = useRef<HarpSynth | null>(null);
   const [level, setLevel] = useState(1);
   const [crossings, setCrossings] = useState<number | null>(null);
+  const [minMoves, setMinMoves] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [hintVisible, setHintVisible] = useState(true);
@@ -32,7 +34,7 @@ export function GameBoard() {
     const canvas = canvasRef.current;
     if (!frame || !canvas) return;
 
-    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) {
       setCanvasError(true);
       return;
@@ -50,36 +52,13 @@ export function GameBoard() {
     let pointerId: number | null = null;
     let celebrating = false;
     let celebrateStart = 0;
+    let introUntil = 0;
     let lastCross: number | null = null;
+    let lastMoves: number | null = null;
     let last = performance.now();
     let time = 0;
     let raf = 0;
     let running = true;
-
-    const resize = () => {
-      const rect = frame.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
-      width = Math.max(1, rect.width);
-      height = Math.max(1, rect.height);
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      if (!graph) startLevel(levelNum);
-      else fitGraph(graph, width, height);
-    };
-
-    const startLevel = (nextLevel: number) => {
-      levelNum = nextLevel;
-      graph = createLevel(nextLevel, width, height);
-      dragging = null;
-      pointerId = null;
-      celebrating = false;
-      const hits = findIntersections(graph.nodes, graph.edges);
-      publishCrossings(hits.length);
-      setLevel(nextLevel);
-      setCleared(false);
-    };
 
     const publishCrossings = (count: number) => {
       if (count === lastCross) return;
@@ -87,40 +66,114 @@ export function GameBoard() {
       setCrossings(count);
     };
 
-    const frameTick = (now: number) => {
-      if (!running) return;
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
-      time += dt;
+    const publishMoves = (count: number) => {
+      if (count === lastMoves) return;
+      lastMoves = count;
+      setMinMoves(count);
+    };
+
+    const paint = (hits: ReturnType<typeof findIntersections>, bloom: number) => {
+      if (!graph) return;
+      renderer.draw(ctx, { graph, hits, time, bloom, width, height });
+    };
+
+    const nodesSettled = (current: Graph) =>
+      current.nodes.every((node) => Math.hypot(node.tx - node.x, node.ty - node.y) < 0.8);
+
+    const mountLevel = (nextLevel: number, intro: boolean) => {
+      levelNum = nextLevel;
+      const next = createLevel(nextLevel, width, height);
+      if (intro) {
+        const pull = 0.62;
+        for (const node of next.nodes) {
+          node.x = next.arena.cx + (node.tx - next.arena.cx) * pull;
+          node.y = next.arena.cy + (node.ty - next.arena.cy) * pull;
+        }
+        introUntil = performance.now() + INTRO_MS;
+      } else {
+        introUntil = 0;
+      }
+      graph = next;
+      dragging = null;
+      pointerId = null;
+      celebrating = false;
+      const hits = findIntersections(graph.nodes, graph.edges);
+      publishCrossings(hits.length);
+      publishMoves(next.minimumMoves);
+      setLevel(nextLevel);
+      setCleared(false);
+      paint(hits, intro ? 0.35 : 0);
+    };
+
+    const resize = () => {
+      const rect = frame.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      width = Math.max(1, rect.width);
+      height = Math.max(1, rect.height);
+      const bufferW = Math.max(1, Math.round(width * dpr));
+      const bufferH = Math.max(1, Math.round(height * dpr));
+      if (canvas.width !== bufferW || canvas.height !== bufferH) {
+        canvas.width = bufferW;
+        canvas.height = bufferH;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (!graph) mountLevel(levelNum, false);
+      else fitGraph(graph, width, height);
 
       if (graph) {
-        stepNodes(graph.nodes, dt, celebrating ? null : dragging);
         const hits = findIntersections(graph.nodes, graph.edges);
-        const solved = hits.length === 0 && !isDegenerate(graph.nodes);
-
-        if (!celebrating && solved) {
-          celebrating = true;
-          celebrateStart = now;
-          dragging = null;
-          pointerId = null;
-          setCleared(true);
-          try {
-            synth.victoryChord();
-          } catch {
-            // Synteza jest ozdobą. Plansza działa też w ciszy.
-          }
-        }
-
-        publishCrossings(hits.length);
-        const bloom = celebrating ? Math.min(1, (now - celebrateStart) / VICTORY_MS) : 0;
-        renderer.draw(ctx, { graph, hits, time, bloom, width, height });
-
-        if (celebrating && now - celebrateStart >= VICTORY_MS) {
-          startLevel(levelNum + 1);
-        }
+        const bloom = celebrating ? Math.min(1, (performance.now() - celebrateStart) / VICTORY_MS) : 0;
+        paint(hits, bloom);
       }
+    };
 
-      raf = requestAnimationFrame(frameTick);
+    const frameTick = (now: number) => {
+      if (!running) return;
+      try {
+        const dt = Math.min(0.033, (now - last) / 1000);
+        last = now;
+        time += dt;
+
+        if (graph) {
+          stepNodes(graph.nodes, dt, celebrating ? null : dragging);
+          const hits = findIntersections(graph.nodes, graph.edges);
+          const flying = now < introUntil || !nodesSettled(graph);
+          const solved = hits.length === 0 && !isDegenerate(graph.nodes);
+
+          if (!celebrating && !flying && solved) {
+            celebrating = true;
+            celebrateStart = now;
+            dragging = null;
+            pointerId = null;
+            setCleared(true);
+            try {
+              synth.victoryChord();
+            } catch {
+              // Synteza jest ozdobą. Plansza działa też w ciszy.
+            }
+          }
+
+          publishCrossings(hits.length);
+          let bloom = 0;
+          if (celebrating) bloom = Math.min(1, (now - celebrateStart) / VICTORY_MS);
+          else if (introUntil > now) bloom = Math.max(0, (introUntil - now) / INTRO_MS) * 0.45;
+          paint(hits, bloom);
+
+          if (celebrating && now - celebrateStart >= VICTORY_MS) {
+            mountLevel(levelNum + 1, true);
+          }
+        } else {
+          ctx.fillStyle = "#09090b";
+          ctx.fillRect(0, 0, width, height);
+        }
+      } catch {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } finally {
+        if (running) raf = requestAnimationFrame(frameTick);
+      }
     };
 
     const pointFrom = (event: PointerEvent) => {
@@ -233,27 +286,19 @@ export function GameBoard() {
         />
 
         <div className="pointer-events-none absolute inset-0">
-          <header className="flex items-start justify-between px-5 pt-[max(1rem,env(safe-area-inset-top))]">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
-                Tangle Duel
-              </p>
-              <p className="mt-3 text-[10px] uppercase tracking-[0.32em] text-[#e0f2fe]/55">
-                Poziom
-              </p>
-              <p className="mt-1 text-3xl font-light leading-none tabular-nums">{level}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-[0.32em] text-[#e0f2fe]/55">
-                Przecięcia
-              </p>
-              <p
-                className={`mt-1 text-3xl font-light leading-none tabular-nums ${
-                  calm ? "text-[#e0f2fe]" : "text-[#f97316]"
-                }`}
-              >
-                {crossings === null ? "—" : crossings}
-              </p>
+          <header className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))]">
+            <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
+              Tangle Duel
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <HudStat label="Poziom" value={level} />
+              <HudStat
+                label="Przecięcia"
+                value={crossings === null ? "—" : crossings}
+                tone={calm ? "ice" : "amber"}
+                align="center"
+              />
+              <HudStat label="Min. ruchy" value={minMoves === null ? "—" : minMoves} align="end" />
             </div>
           </header>
 
@@ -293,6 +338,33 @@ export function GameBoard() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function HudStat({
+  label,
+  value,
+  tone = "ice",
+  align = "start",
+}: {
+  label: string;
+  value: number | string;
+  tone?: "ice" | "amber";
+  align?: "start" | "center" | "end";
+}) {
+  const alignClass =
+    align === "end" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  return (
+    <div className={alignClass}>
+      <p className="text-[10px] uppercase tracking-[0.18em] text-[#e0f2fe]/55">{label}</p>
+      <p
+        className={`mt-1 text-3xl font-light leading-none tabular-nums ${
+          tone === "amber" ? "text-[#f97316]" : "text-[#e0f2fe]"
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

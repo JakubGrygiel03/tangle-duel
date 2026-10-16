@@ -1,4 +1,4 @@
-import { findIntersections, segmentIntersection } from "./intersections";
+import { findIntersections, minimumMoveCount, segmentIntersection } from "./intersections";
 
 export type Point = {
   x: number;
@@ -31,12 +31,22 @@ export type Graph = {
   edges: GraphEdge[];
   arena: Arena;
   level: number;
+  /** Dolne ograniczenie ruchów policzone na starcie układu. */
+  minimumMoves: number;
 };
 
 export type LevelPlan = {
   solved: Point[];
   tangled: Point[];
   edges: GraphEdge[];
+  crossings: number;
+};
+
+export type LevelSpec = {
+  nodes: number;
+  extraEdges: number;
+  minCrossings: number;
+  innerNodes: number;
 };
 
 /** Średnica celu dotyku. Wizualny kryształ jest mniejszy. */
@@ -46,11 +56,47 @@ const MIN_DRAG_GAP = 22;
 const DEGENERATE_GAP = 12;
 const SPRING = 22;
 
-export function specsForLevel(level: number): { nodes: number; extraEdges: number } {
+export function specsForLevel(level: number): LevelSpec {
   const safe = Math.max(1, Math.floor(level));
-  const nodes = Math.min(12, 4 + safe);
-  const extraEdges = Math.min(nodes, Math.max(2, Math.round(safe * 1.1)));
-  return { nodes, extraEdges };
+
+  if (safe <= 3) {
+    return {
+      nodes: safe === 1 ? 5 : 6,
+      extraEdges: safe,
+      minCrossings: safe === 1 ? 1 : 2,
+      innerNodes: 1,
+    };
+  }
+
+  if (safe <= 7) {
+    const nodes = safe === 4 ? 7 : safe === 7 ? 9 : 8;
+    return {
+      nodes,
+      extraEdges: 3 + (safe - 4),
+      minCrossings: 3,
+      innerNodes: 2,
+    };
+  }
+
+  if (safe <= 12) {
+    const nodes = safe <= 9 ? 10 : safe <= 11 ? 11 : 12;
+    const cap = Math.max(0, 2 * nodes - 5);
+    return {
+      nodes,
+      extraEdges: Math.min(cap, 5 + (safe - 8)),
+      minCrossings: 4 + Math.floor((safe - 8) / 2),
+      innerNodes: 0,
+    };
+  }
+
+  const nodes = Math.min(15, 13 + (safe - 13));
+  const cap = Math.max(0, 2 * nodes - 5);
+  return {
+    nodes,
+    extraEdges: Math.min(cap, 8 + Math.min(6, safe - 12)),
+    minCrossings: 6 + Math.min(4, safe - 13),
+    innerNodes: 0,
+  };
 }
 
 export function computeArena(width: number, height: number): Arena {
@@ -247,42 +293,49 @@ function ensureDisjointPair(points: readonly Point[], edges: GraphEdge[]): boole
   return disjointPairs(edges).length > 0;
 }
 
-function relaxFreePoints(points: Point[], locked: ReadonlySet<number>): void {
-  const minDistance = 0.24;
+function crossingCount(points: readonly Point[], edges: readonly GraphEdge[]): number {
+  return findIntersections(nodesFrom(points), edges).length;
+}
 
-  for (let pass = 0; pass < 10; pass++) {
-    for (let i = 0; i < points.length; i++) {
-      if (locked.has(i)) continue;
-      const point = points[i];
-      if (!point) continue;
+function layoutFromOrder(order: readonly number[], inner: ReadonlySet<number>): Point[] | null {
+  const count = order.length;
+  const points: Point[] = new Array(count);
 
-      for (let j = 0; j < points.length; j++) {
-        if (i === j) continue;
-        const other = points[j];
-        if (!other) continue;
-        const dx = point.x - other.x;
-        const dy = point.y - other.y;
-        const distance = Math.hypot(dx, dy) || 0.0001;
-        if (distance >= minDistance) continue;
-        const push = ((minDistance - distance) / distance) * 0.65;
-        point.x += dx * push;
-        point.y += dy * push;
-      }
+  for (let slot = 0; slot < count; slot++) {
+    const id = order[slot];
+    if (id === undefined || id < 0) return null;
+    const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2;
+    const radius = inner.has(id) ? 0.48 + (slot % 3) * 0.06 : 0.98;
+    points[id] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  }
 
-      const radius = Math.hypot(point.x, point.y) || 0.0001;
-      if (radius > 0.86) {
-        point.x = (point.x / radius) * 0.86;
-        point.y = (point.y / radius) * 0.86;
-      }
-    }
+  if (points.some((point) => !point)) return null;
+  return points;
+}
+
+function shuffleIds(ids: number[], rnd: () => number): void {
+  for (let index = ids.length - 1; index > 0; index--) {
+    const swap = Math.floor(rnd() * (index + 1));
+    const current = ids[index];
+    const other = ids[swap];
+    if (current === undefined || other === undefined) continue;
+    ids[index] = other;
+    ids[swap] = current;
   }
 }
 
+/**
+ * Cztery końce rozłącznej pary strun lądują na przemian na okręgu,
+ * więc przekątne czworokąta się przecinają. Potem zamiany miejsc
+ * podnoszą liczbę przecięć do progu poziomu.
+ */
 function tanglePoints(
   solved: readonly Point[],
   edges: readonly GraphEdge[],
+  innerNodes: number,
+  minCrossings: number,
   rnd: () => number,
-): Point[] | null {
+): { points: Point[]; crossings: number } | null {
   const pairs = disjointPairs(edges);
   const chosen = pairs[Math.floor(rnd() * pairs.length)];
   if (!chosen) return null;
@@ -303,38 +356,53 @@ function tanglePoints(
   });
 
   const rest = solved.map((_, index) => index).filter((index) => !lockedIds.includes(index));
-  for (let index = rest.length - 1; index > 0; index--) {
-    const swap = Math.floor(rnd() * (index + 1));
-    const current = rest[index];
-    const other = rest[swap];
-    if (current === undefined || other === undefined) continue;
-    rest[index] = other;
-    rest[swap] = current;
-  }
+  shuffleIds(rest, rnd);
 
   let cursor = 0;
   for (let slot = 0; slot < count; slot++) {
-    if (order[slot] >= 0) continue;
+    if (order[slot]! >= 0) continue;
     const id = rest[cursor];
     if (id === undefined) return null;
     order[slot] = id;
     cursor += 1;
   }
 
-  const points: Point[] = new Array(count);
-  const locked = new Set(lockedIds);
-
-  for (let slot = 0; slot < count; slot++) {
-    const id = order[slot];
-    if (id === undefined || id < 0) return null;
-    const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2;
-    const radius = locked.has(id) ? 1 : 0.56 + rnd() * 0.26;
-    points[id] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  const inner = new Set<number>();
+  const innerPool = rest.slice();
+  shuffleIds(innerPool, rnd);
+  for (const id of innerPool) {
+    if (inner.size >= innerNodes) break;
+    inner.add(id);
   }
 
-  if (points.some((point) => !point)) return null;
-  relaxFreePoints(points, locked);
-  return points;
+  let points = layoutFromOrder(order, inner);
+  if (!points) return null;
+  let score = crossingCount(points, edges);
+  const swaps = count * 36;
+
+  for (let step = 0; step < swaps && score < minCrossings; step++) {
+    const left = Math.floor(rnd() * count);
+    const right = Math.floor(rnd() * count);
+    if (left === right) continue;
+    const leftId = order[left];
+    const rightId = order[right];
+    if (leftId === undefined || rightId === undefined) continue;
+    order[left] = rightId;
+    order[right] = leftId;
+
+    const trial = layoutFromOrder(order, inner);
+    const next = trial ? crossingCount(trial, edges) : -1;
+    if (trial && next >= score) {
+      points = trial;
+      score = next;
+    } else {
+      order[left] = leftId;
+      order[right] = rightId;
+    }
+  }
+
+  if (score < 1) return null;
+  return { points, crossings: score };
 }
 
 function nodesFrom(points: readonly Point[]): GraphNode[] {
@@ -354,20 +422,20 @@ function crosses(points: readonly Point[], edges: readonly GraphEdge[]): boolean
 }
 
 export function planLevel(level: number, seed: number): LevelPlan | null {
-  const { nodes, extraEdges } = specsForLevel(level);
-  if (nodes < 4) return null;
+  const spec = specsForLevel(level);
+  if (spec.nodes < 4) return null;
 
   const rnd = mulberry32(seed);
-  const solved = sunflower(nodes, rnd);
+  const solved = sunflower(spec.nodes, rnd);
   const edges = minimumSpanningTree(solved);
-  addPlanarEdges(solved, edges, extraEdges, rnd);
+  addPlanarEdges(solved, edges, spec.extraEdges, rnd);
   if (!ensureDisjointPair(solved, edges)) return null;
   if (crosses(solved, edges)) return null;
 
-  const tangled = tanglePoints(solved, edges, rnd);
-  if (!tangled || !crosses(tangled, edges)) return null;
+  const tangled = tanglePoints(solved, edges, spec.innerNodes, spec.minCrossings, rnd);
+  if (!tangled) return null;
 
-  return { solved, tangled, edges };
+  return { solved, tangled: tangled.points, edges, crossings: tangled.crossings };
 }
 
 function scalePoint(point: Point, arena: Arena): Point {
@@ -396,27 +464,33 @@ function fallbackPlan(): LevelPlan {
     const angle = -Math.PI / 2 + (index / 4) * Math.PI * 2;
     return { x: Math.cos(angle), y: Math.sin(angle) };
   });
-  return { solved, tangled, edges };
+  const crossings = crossingCount(tangled, edges);
+  return { solved, tangled, edges, crossings };
 }
 
 export function createLevel(level: number, width: number, height: number): Graph {
   const arena = computeArena(width, height);
-  let plan: LevelPlan | null = null;
+  const spec = specsForLevel(level);
+  let best: LevelPlan | null = null;
 
-  for (let attempt = 0; attempt < 16; attempt++) {
+  for (let attempt = 0; attempt < 32; attempt++) {
     const seed = Math.imul(Math.max(1, level), 10007) + attempt * 7919 + 42;
-    plan = planLevel(level, seed);
-    if (plan) break;
+    const plan = planLevel(level, seed);
+    if (!plan) continue;
+    if (!best || plan.crossings > best.crossings) best = plan;
+    if (plan.crossings >= spec.minCrossings) break;
   }
 
-  const ready = plan ?? fallbackPlan();
+  const ready = best ?? fallbackPlan();
   const nodes = nodesFrom(ready.tangled.map((point) => scalePoint(point, arena)));
+  const hits = findIntersections(nodes, ready.edges);
 
   return {
     nodes,
     edges: ready.edges,
     arena,
     level,
+    minimumMoves: minimumMoveCount(ready.edges, hits),
   };
 }
 

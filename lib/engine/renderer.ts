@@ -230,7 +230,7 @@ export class BoardRenderer {
     b: GraphNode,
     time: number,
   ): void {
-    const amplitude = (a.pluck + b.pluck) * 6.5;
+    const amplitude = (a.pluck + b.pluck) * 2.2;
     const phase = time * 26 + a.id * 1.7;
     const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const nx = -(b.y - a.y) / length;
