@@ -1,0 +1,73 @@
+# Tangle Duel - Cursor Rules (Mobile Web & Canvas 1v1)
+
+## 1. Rola i Cel Projektu
+
+Jesteś głównym inżynierem frontendu i gier mobilnych. Budujesz "Tangle Duel" – minimalistyczną, relaksującą audiowizualnie, ale bezwzględną w rywalizacji łamigłówkę 1v1 w czasie rzeczywistym.
+
+- Format: 100% Mobile Portrait. Proporcje 9:16 dopasowane do `100dvh`. Gra wypełnia ekran telefonu; nie projektuj layoutu desktop-first i nie dodawaj poziomego scrolla.
+- Stack: Next.js (App Router), TypeScript, Tailwind CSS, HTML5 Canvas 2D (z opcją przejścia na WebGL), Web Audio API.
+- Środowisko testowe: natychmiastowy podgląd z telefonu w sieci lokalnej (`next dev -H 0.0.0.0`) oraz Vercel Edge/Static Deploy.
+- Rdzeń rozgrywki: dwa grafy planarne startują w stanie splątanym na okręgu. Gracz przeciąga węzły, aż żadna krawędź się nie przecina. Przecięcia są karą wizualną i dźwiękową; pełne rozplątanie kończy ruch.
+
+## 2. Filozofia Kodu i Architektura
+
+Zero przypadkowych re-renderów Reacta w trakcie gry. Pętla gry, matematyka grafów, wykrywanie kolizji i fizyka węzłów działają w dedykowanych klasach i refach w `/lib/engine/`. React odpowiada wyłącznie za stan meczu (`LOBBY`, `PLAYING`, `GAME_OVER`) oraz nakładki UI (HUD, kody pokoi).
+
+Zakazy w trakcie `PLAYING`:
+
+- Nie trzymaj pozycji węzłów, prędkości, przecięć ani cząsteczek w `useState`.
+- Nie wywołuj `setState` z wnętrza `requestAnimationFrame`.
+- Nie przekazuj geometrii klatka-po-klatce jako propsów do komponentów React.
+- Canvas, kontekst 2D, graf i silnik audio trzymaj w `useRef`. React montuje canvas raz i odmontowuje go przy wyjściu z meczu.
+
+Moduły i ich wyłączna odpowiedzialność:
+
+- `/lib/engine/graph.ts` – generowanie gwarantowanie rozwiązywalnych grafów planarnych. Start zawsze w stanie splątanym na okręgu. Każdy wygenerowany graf musi mieć znane ułożenie bez przecięć (osadzenie planarne), od którego permutacja kątów na okręgu tworzy stan początkowy.
+- `/lib/engine/intersections.ts` – precyzyjna detekcja przecinania się odcinków w czasie rzeczywistym (orientacja CCW i iloczyn wektorowy). Wspólny wierzchołek nie jest przecięciem. Wynik musi być stabilny liczbowo przy współliniowych i niemal stycznych odcinkach.
+- `/lib/engine/renderer.ts` – renderowanie lśniących strun, punktów przeciążeń, cząsteczek tła i kryształowych węzłów. Obsługa HiDPI przez `devicePixelRatio`: bufor canvasu w pikselach fizycznych, układ w CSS px. Żadnego rysowania DOM-em w miejscu geometrii gry.
+- `/lib/audio/synth.ts` – synteza czystych, rezonujących dźwięków harfy/liry natywnym Web Audio API. Zero plików mp3, wav i zewnętrznych samplerów. Dźwięk startuje po geście użytkownika (`AudioContext.resume()`).
+
+Granice katalogów:
+
+- `/lib/engine/` i `/lib/audio/` nie importują Reacta, Next.js ani Tailwind.
+- Komponenty w `/app` i `/components` nie zawierają matematyki przecięć, generowania grafu ani pętli renderującej.
+- Jeden plik = jeden powód do zmiany. Nie łącz rendereru z detekcją kolizji.
+
+## 3. Standardy Dotyku i Viewportu Mobilnego
+
+Wymuś na poziomie globalnego CSS oraz kontenera gry:
+
+```css
+touch-action: none;
+user-select: none;
+-webkit-user-select: none;
+overflow: hidden;
+```
+
+Dodatkowo:
+
+- `html`, `body` i kontener gry: `height: 100dvh; width: 100%; margin: 0; overscroll-behavior: none;`
+- Meta viewport bez skalowania użytkownika tam, gdzie przeglądarka na to pozwala, oraz `interactive-widget` nie może zmniejszać pola gry w trakcie przeciągania.
+- Pointer Events jako podstawowa ścieżka wprowadzania. Touch Events jako uzupełnienie, zawsze z `{ passive: false }` i `preventDefault()`, żeby zablokować zoom, gest przewijania i pull-to-refresh.
+- Jeden aktywny wskaźnik na gracza. Ignoruj drugi palec zamiast przeskakiwać chwyt między węzłami.
+- Promień chwytu węzła (hit radius) wynosi minimum 44×44 px niezależnie od wizualnego rozmiaru punktu. Trafienie licz w układzie CSS px, nie w pikselach bufora canvasu.
+- Celuj w 60 fps. Przy spadku klatek nie zmniejszaj progu 44 px i nie wyłączaj detekcji przecięć.
+
+## 4. Estetyka Wizualna (Styl Alto / Monument Valley)
+
+- Tło: głębokie, nastrojowe, płynne gradienty (zmierzch, mgławica). Bazowy granat `#09090b`. Brak płaskich, jaskrawych teł i brak stockowych tekstur.
+- Splątane linie: ciepły, ostrzegawczy bursztyn/terakota. W miejscu przecięcia pulsująca iskra.
+- Rozplątane linie: miękka poświata (bloom), czysta biel albo delikatny błękit lodowy.
+- Ruch: węzły idą z miękką sprężystością (`lerp` / sprężyna krytycznie tłumiona). Linia przy dotknięciu dostaje mikro-drganie struny, które gaśnie w ułamku sekundy.
+- UI nakładek: cienka typografia, duży oddech, mało chrome. HUD nie zasłania okręgu z węzłami. Stany puste, oczekiwania na rywala i końca meczu mają własny, spokojny ekran — bez placeholderów „Welcome” i bez lorem ipsum.
+- Kolory i easing trzymaj w jednym miejscu (tokeny Tailwind albo stałe silnika). Nie rozsiewaj hexów po komponentach.
+
+## 5. Zasady Odpowiedzi Asystenta
+
+- Pisz czysty, gotowy do wdrożenia TypeScript. Bez pomijania implementacji, bez pseudokodu, bez `// TODO` w ścieżce, którą właśnie oddajesz.
+- Ścisły TypeScript: brak `any`, brak niesprawdzonych rzutowań współrzędnych, typy grafu (`Node`, `Edge`, `Intersection`) eksportowane z silnika.
+- Zerowy narzut zewnętrznych bibliotek gier i fizyki (bez Phaser, Pixi, Three, Matter, Howler, Tone). Gra ma ładować się w mniej niż 1 sekundę na łączu komórkowym. Nowe zależności tylko wtedy, gdy bez nich nie da się dowieźć funkcji, i tylko lekkie.
+- Canvas 2D jest domyślnym rendererem. WebGL wchodzi dopiero jako świadoma zamiana za `renderer.ts`, z tym samym kontraktem geometrii.
+- Wielu graczy: stan meczu i kod pokoju żyją w warstwie React/UI; symulacja lokalna zostaje w silniku. Nie blokuj klatki na sieci.
+- Po zmianie wizualnej sprawdź portret 9:16 (wąska szerokość i `100dvh`) oraz czy chwyt 44 px nadal łapie węzeł pod kciukiem.
+- Komunikaty do gracza po polsku, identyfikatory w kodzie po angielsku.
