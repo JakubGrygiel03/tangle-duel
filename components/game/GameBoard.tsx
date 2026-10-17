@@ -100,6 +100,12 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       if (digit === shownDigit) return;
       shownDigit = digit;
       setCountdown(digit);
+      if (digit === null) return;
+      try {
+        synth.countTick(digit);
+      } catch {
+        // Cisza nie zatrzymuje odliczania.
+      }
     };
 
     const publishCountSpot = (graphNow: Graph) => {

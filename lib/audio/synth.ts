@@ -31,6 +31,12 @@ export class HarpSynth {
     this.pluck(freq * 2, 0.11, 0.32);
   }
 
+  /** Krótki szarp na cyfrze odliczania: 3 niżej, 1 wyżej. */
+  countTick(step: 3 | 2 | 1): void {
+    const freq = step === 3 ? 523.2511 : step === 2 ? 659.2551 : 783.9909;
+    this.pluck(freq, 0.07, 0.22);
+  }
+
   victoryChord(): void {
     const ctx = this.ensure();
     if (ctx.state !== "running") void ctx.resume();
