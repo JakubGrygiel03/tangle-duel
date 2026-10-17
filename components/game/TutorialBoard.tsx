@@ -348,7 +348,7 @@ export function TutorialBoard({
                   onClick={onFinish}
                   className="pointer-events-auto mt-4 h-14 w-full rounded-[1.1rem] bg-[linear-gradient(180deg,#f8fbff_0%,#d5eaf6_100%)] text-base font-medium text-[#0b1020]"
                 >
-                  {firstVisit ? "Gram" : "Wracam"}
+                  {firstVisit ? "Dalej" : "Wracam"}
                 </button>
               )}
             </div>

@@ -103,8 +103,14 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
     };
 
     const publishCountSpot = (graphNow: Graph) => {
+      const rect = frame.getBoundingClientRect();
+      const hud = hudRef.current?.getBoundingClientRect();
+      const hudBottom = hud ? hud.bottom - rect.top : Math.min(120, rect.height * 0.16);
+      const ringTop = graphNow.arena.cy - graphNow.arena.radius;
+      const gapMid = hudBottom + Math.max(0, ringTop - hudBottom) / 2;
+      const aboveRing = ringTop - 54;
+      const y = Math.min(gapMid, aboveRing);
       const x = graphNow.arena.cx;
-      const y = graphNow.arena.cy - graphNow.arena.radius * 0.32;
       const key = `${Math.round(x)}:${Math.round(y)}`;
       if (key === spotKey) return;
       spotKey = key;
@@ -417,7 +423,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
               role="status"
               aria-live="polite"
               aria-label={String(countdown)}
-              className="count-arrive pointer-events-none absolute text-[7rem] font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
+              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
               style={{ left: countAt.x, top: countAt.y }}
             >
               {countdown}

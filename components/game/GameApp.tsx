@@ -1,8 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { GameBoard } from "@/components/game/GameBoard";
 import { LivingSky } from "@/components/game/LivingSky";
+import { StudioCard } from "@/components/game/StudioCard";
 import {
   readSave,
   readServerSave,
@@ -18,6 +19,7 @@ type Screen = "tutorial" | "menu" | "levels" | "settings" | "play";
 export function GameApp() {
   const save = useSyncExternalStore(subscribeSave, readSave, readServerSave);
   const [screen, setScreen] = useState<Screen | "auto">("auto");
+  const [studio, setStudio] = useState<"show" | "leave" | "done">("show");
   const [confirmReset, setConfirmReset] = useState(false);
   const [run, setRun] = useState(0);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -31,6 +33,20 @@ export function GameApp() {
   };
 
   const openTutorial = () => setScreen("tutorial");
+
+  useEffect(() => {
+    if (studio !== "show") return;
+    const timer = window.setTimeout(() => setStudio("leave"), 2200);
+    return () => window.clearTimeout(timer);
+  }, [studio]);
+
+  useEffect(() => {
+    if (studio !== "leave") return;
+    const timer = window.setTimeout(() => setStudio("done"), 620);
+    return () => window.clearTimeout(timer);
+  }, [studio]);
+
+  const skipStudio = () => setStudio((current) => (current === "show" ? "leave" : current));
 
   useLayoutEffect(() => {
     if (visible !== "menu") return;
@@ -63,14 +79,13 @@ export function GameApp() {
   }, [visible]);
 
   const finishTutorial = () => {
-    const firstVisit = !save.tutorialSeen;
     updateSave((current) => ({ ...current, tutorialSeen: true }));
-    if (firstVisit) play(1);
-    else setScreen("menu");
+    setScreen("menu");
   };
 
+  let stage: ReactNode;
   if (visible === "play") {
-    return (
+    stage = (
       <GameBoard
         key={run}
         level={save.level}
@@ -88,10 +103,8 @@ export function GameApp() {
         onAdvance={(level) => updateSave((current) => ({ ...current, level }))}
       />
     );
-  }
-
-  if (visible === "tutorial") {
-    return (
+  } else if (visible === "tutorial") {
+    stage = (
       <TutorialBoard
         muted={save.muted}
         haptics={save.haptics}
@@ -103,9 +116,8 @@ export function GameApp() {
         onFinish={finishTutorial}
       />
     );
-  }
-
-  return (
+  } else {
+    stage = (
     <div className="game-shell fixed inset-0 flex items-center justify-center bg-[#09090b] text-[#e0f2fe]">
       <div ref={shellRef} className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden">
         <LivingSky mood={visible === "menu" ? "menu" : "calm"} band={visible === "menu" ? menuBand : undefined} />
@@ -155,6 +167,14 @@ export function GameApp() {
         </div>
       </div>
     </div>
+    );
+  }
+
+  return (
+    <>
+      {stage}
+      {studio !== "done" && <StudioCard leaving={studio === "leave"} onSkip={skipStudio} />}
+    </>
   );
 }
 
