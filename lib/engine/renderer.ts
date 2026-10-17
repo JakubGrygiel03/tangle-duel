@@ -144,8 +144,8 @@ export class BoardRenderer {
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(224, 242, 254, 0.03)";
     ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(224, 242, 254, 0.14)";
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = "rgba(224, 242, 254, 0.28)";
     ctx.stroke();
 
     ctx.beginPath();

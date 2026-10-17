@@ -2,7 +2,9 @@
 
 Minimalistyczna łamigłówka dotykowa. Rozplątujesz świetliste struny, przeciągając kryształowe węzły, aż żaden odcinek się nie przecina. Czyste ułożenie rozbłyska i po 1,5 s wciąga kolejny układ.
 
-Poziomy 1–3 to prosta konstelacja (5–6 węzłów). Poziomy 4–7 zagęszczają sieć (7–9). Poziomy 8–12 składają złożone figury (10–12). Od poziomu 13 plansza ma 13–15 węzłów i więcej przecięć na starcie. Górny pasek pokazuje numer poziomu, bieżące przecięcia i dolne ograniczenie liczby ruchów.
+Poziomy 1–3 to prosta konstelacja (5–6 węzłów). Poziomy 4–7 zagęszczają sieć (7–9). Poziomy 8–12 składają złożone figury (10–12). Od poziomu 13 plansza ma 13–15 węzłów i więcej przecięć na starcie. Kryształy zostają wewnątrz okręgu. Górny pasek pokazuje numer poziomu, bieżące przecięcia i minimalną liczbę przeciągnięć, po których ten układ da się rozplątać.
+
+Start otwiera samouczek, potem menu. Stamtąd wchodzisz w grę, planszę poziomów 1–15 i ustawienia (dźwięk, wibracje, powtórka samouczka, reset postępu). Z planszy wracasz do menu przyciskiem w lewym dolnym rogu.
 
 Gra jest pionowa (wysokość `100dvh`), rysowana na HTML5 Canvas i nie używa silnika gier ani próbek audio. Dźwięk harfy powstaje w Web Audio API po pierwszym dotknięciu.
 

@@ -1,4 +1,4 @@
-import { findIntersections, minimumMoveCount, segmentIntersection } from "./intersections";
+import { findIntersections, segmentIntersection } from "./intersections";
 
 export type Point = {
   x: number;
@@ -99,13 +99,21 @@ export function specsForLevel(level: number): LevelSpec {
   };
 }
 
+/** Ułamek promienia, w którym leżą środki kryształów. Reszta zostaje na obwód. */
+const INSIDE = 0.8;
+const CRYSTAL_PAD = 18;
+
 export function computeArena(width: number, height: number): Arena {
   const w = Math.max(width, 1);
   const h = Math.max(height, 1);
+  const top = Math.min(156, Math.max(104, h * 0.18));
+  const bottom = Math.min(96, Math.max(76, h * 0.11));
+  const room = Math.max(180, h - top - bottom);
+  const radius = Math.max(104, Math.min(w * 0.46 - 6, room / 2 - 2));
   return {
     cx: w / 2,
-    cy: h * 0.53,
-    radius: Math.max(72, Math.min(w * 0.36, h * 0.28)),
+    cy: top + radius,
+    radius,
   };
 }
 
@@ -305,7 +313,7 @@ function layoutFromOrder(order: readonly number[], inner: ReadonlySet<number>): 
     const id = order[slot];
     if (id === undefined || id < 0) return null;
     const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2;
-    const radius = inner.has(id) ? 0.48 + (slot % 3) * 0.06 : 0.98;
+    const radius = inner.has(id) ? 0.4 + (slot % 3) * 0.05 : 0.92;
     points[id] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   }
 
@@ -440,9 +448,122 @@ export function planLevel(level: number, seed: number): LevelPlan | null {
 
 function scalePoint(point: Point, arena: Arena): Point {
   return {
-    x: arena.cx + point.x * arena.radius,
-    y: arena.cy + point.y * arena.radius,
+    x: arena.cx + point.x * arena.radius * INSIDE,
+    y: arena.cy + point.y * arena.radius * INSIDE,
   };
+}
+
+/**
+ * Najmniejsza liczba przeciągnięć, po których układ da się rozplątać:
+ * każdy ruch stawia jeden kryształ na jego rozwiązanym miejscu.
+ * Mniej ruchów zostawia choć jedno przecięcie.
+ */
+export function movesToUntangle(
+  solved: readonly Point[],
+  tangled: readonly Point[],
+  edges: readonly GraphEdge[],
+): number {
+  const count = tangled.length;
+  if (count === 0 || crossingCount(tangled, edges) === 0) return 0;
+
+  const involved: number[] = [];
+  const groups: number[][] = [];
+  const hits = findIntersections(nodesFrom(tangled), edges);
+  const seen = new Set<number>();
+  for (const hit of hits) {
+    const first = edges[hit.edgeA];
+    const second = edges[hit.edgeB];
+    if (!first || !second) continue;
+    const group = [first.a, first.b, second.a, second.b];
+    groups.push(group);
+    for (const id of group) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      involved.push(id);
+    }
+  }
+  if (involved.length === 0) return 0;
+
+  let lower = involved.length;
+  const masks = 1 << involved.length;
+  for (let mask = 1; mask < masks; mask++) {
+    let bits = 0;
+    for (let index = 0; index < involved.length; index++) if (mask & (1 << index)) bits += 1;
+    if (bits >= lower) continue;
+    const picked = new Set<number>();
+    for (let index = 0; index < involved.length; index++) {
+      if (mask & (1 << index)) picked.add(involved[index]!);
+    }
+    if (groups.every((group) => group.some((id) => picked.has(id)))) lower = bits;
+  }
+
+  const placed: Point[] = tangled.map((point) => ({ x: point.x, y: point.y }));
+  const parked = new Set<number>();
+  let upper = 0;
+
+  while (crossingCount(placed, edges) > 0 && upper < involved.length) {
+    let bestId = -1;
+    let bestCount = Number.POSITIVE_INFINITY;
+    for (const id of involved) {
+      if (parked.has(id)) continue;
+      const home = solved[id];
+      const current = placed[id];
+      if (!home || !current) continue;
+      placed[id] = home;
+      const next = crossingCount(placed, edges);
+      placed[id] = current;
+      if (next < bestCount) {
+        bestCount = next;
+        bestId = id;
+      }
+    }
+    if (bestId < 0) break;
+    const home = solved[bestId];
+    if (!home) break;
+    placed[bestId] = home;
+    parked.add(bestId);
+    upper += 1;
+  }
+
+  if (upper === lower) return upper;
+
+  const fresh = tangled.map((point) => ({ x: point.x, y: point.y }));
+  for (let index = 0; index < fresh.length; index++) {
+    const point = fresh[index];
+    if (point) placed[index] = { x: point.x, y: point.y };
+  }
+
+  let best = upper;
+  const deadline = Date.now() + (involved.length > 11 ? 48 : 180);
+  const moved = new Set<number>();
+
+  const improve = (moves: number): void => {
+    if (moves >= best || Date.now() > deadline) return;
+    const remaining = findIntersections(nodesFrom(placed), edges);
+    if (remaining.length === 0) {
+      best = moves;
+      return;
+    }
+    const hit = remaining[0];
+    const first = hit ? edges[hit.edgeA] : undefined;
+    const second = hit ? edges[hit.edgeB] : undefined;
+    if (!first || !second) return;
+    const options = [first.a, first.b, second.a, second.b].filter((id) => !moved.has(id));
+    for (const id of options) {
+      const home = solved[id];
+      const current = placed[id];
+      if (!home || !current) continue;
+      placed[id] = home;
+      moved.add(id);
+      improve(moves + 1);
+      placed[id] = current;
+      moved.delete(id);
+      if (Date.now() > deadline) return;
+    }
+  };
+
+  improve(0);
+  return best;
 }
 
 function fallbackPlan(): LevelPlan {
@@ -483,14 +604,13 @@ export function createLevel(level: number, width: number, height: number): Graph
 
   const ready = best ?? fallbackPlan();
   const nodes = nodesFrom(ready.tangled.map((point) => scalePoint(point, arena)));
-  const hits = findIntersections(nodes, ready.edges);
 
   return {
     nodes,
     edges: ready.edges,
     arena,
     level,
-    minimumMoves: minimumMoveCount(ready.edges, hits),
+    minimumMoves: movesToUntangle(ready.solved, ready.tangled, ready.edges),
   };
 }
 
@@ -587,19 +707,28 @@ function separateFromOthers(
   return { x: px, y: py };
 }
 
+export function clampToArena(x: number, y: number, arena: Arena): Point {
+  const dx = x - arena.cx;
+  const dy = y - arena.cy;
+  const maxRadius = Math.max(32, arena.radius - CRYSTAL_PAD);
+  const distance = Math.hypot(dx, dy);
+  if (distance <= maxRadius || distance === 0) return { x, y };
+  const scale = maxRadius / distance;
+  return { x: arena.cx + dx * scale, y: arena.cy + dy * scale };
+}
+
 export function placeDragTarget(
   nodes: readonly GraphNode[],
   id: number,
   x: number,
   y: number,
-  width: number,
-  height: number,
+  arena: Arena,
 ): Point {
-  let point = clampToBoard(x, y, width, height);
+  let point = clampToArena(x, y, arena);
   point = separateFromOthers(nodes, id, point.x, point.y);
-  point = clampToBoard(point.x, point.y, width, height);
+  point = clampToArena(point.x, point.y, arena);
   point = separateFromOthers(nodes, id, point.x, point.y);
-  return clampToBoard(point.x, point.y, width, height);
+  return clampToArena(point.x, point.y, arena);
 }
 
 export function isDegenerate(nodes: readonly GraphNode[]): boolean {

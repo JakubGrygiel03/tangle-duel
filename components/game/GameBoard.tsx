@@ -17,15 +17,26 @@ import { BoardRenderer } from "@/lib/engine/renderer";
 const VICTORY_MS = 1500;
 const INTRO_MS = 1100;
 
-export function GameBoard() {
+type GameBoardProps = {
+  level: number;
+  muted: boolean;
+  haptics: boolean;
+  onMenu: () => void;
+  onMuted: (muted: boolean) => void;
+  onCleared: (level: number) => void;
+  onAdvance: (level: number) => void;
+};
+
+export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, onCleared, onAdvance }: GameBoardProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const synthRef = useRef<HarpSynth | null>(null);
-  const [level, setLevel] = useState(1);
+  const [level, setLevel] = useState(startLevel);
   const [crossings, setCrossings] = useState<number | null>(null);
   const [minMoves, setMinMoves] = useState<number | null>(null);
-  const [muted, setMuted] = useState(false);
   const [cleared, setCleared] = useState(false);
+  const callbacks = useRef({ haptics, onCleared, onAdvance });
+  const mutedRef = useRef(muted);
   const [hintVisible, setHintVisible] = useState(true);
   const [canvasError, setCanvasError] = useState(false);
 
@@ -41,13 +52,14 @@ export function GameBoard() {
     }
 
     const synth = new HarpSynth();
+    synth.setMuted(mutedRef.current);
     synthRef.current = synth;
     const renderer = new BoardRenderer();
 
     let graph: Graph | null = null;
     let width = 0;
     let height = 0;
-    let levelNum = 1;
+    let levelNum = startLevel;
     let dragging: number | null = null;
     let pointerId: number | null = null;
     let celebrating = false;
@@ -101,6 +113,7 @@ export function GameBoard() {
       publishCrossings(hits.length);
       publishMoves(next.minimumMoves);
       setLevel(nextLevel);
+      callbacks.current.onAdvance(nextLevel);
       setCleared(false);
       paint(hits, intro ? 0.35 : 0);
     };
@@ -147,6 +160,7 @@ export function GameBoard() {
             dragging = null;
             pointerId = null;
             setCleared(true);
+            callbacks.current.onCleared(levelNum);
             try {
               synth.victoryChord();
             } catch {
@@ -196,9 +210,10 @@ export function GameBoard() {
       pointerId = event.pointerId;
       dragging = id;
       node.pluck = 1;
-      const target = placeDragTarget(graph.nodes, id, point.x, point.y, width, height);
+      const target = placeDragTarget(graph.nodes, id, point.x, point.y, graph.arena);
       node.tx = target.x;
       node.ty = target.y;
+      if (callbacks.current.haptics) navigator.vibrate?.(12);
       synth.touchNode(id);
       setHintVisible(false);
 
@@ -216,7 +231,7 @@ export function GameBoard() {
       const node = graph.nodes[dragging];
       if (!node) return;
       const point = pointFrom(event);
-      const target = placeDragTarget(graph.nodes, node.id, point.x, point.y, width, height);
+      const target = placeDragTarget(graph.nodes, node.id, point.x, point.y, graph.arena);
       node.tx = target.x;
       node.ty = target.y;
     };
@@ -268,7 +283,13 @@ export function GameBoard() {
       synthRef.current = null;
       void synth.close();
     };
-  }, []);
+  }, [startLevel]);
+
+  useEffect(() => {
+    callbacks.current = { haptics, onCleared, onAdvance };
+    mutedRef.current = muted;
+    synthRef.current?.setMuted(muted);
+  }, [haptics, muted, onCleared, onAdvance]);
 
   const calm = crossings === 0;
 
@@ -286,6 +307,16 @@ export function GameBoard() {
         />
 
         <div className="pointer-events-none absolute inset-0">
+          <button
+            type="button"
+            onClick={onMenu}
+            aria-label="Wróć do menu"
+            className="pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+              <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </button>
           <header className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))]">
             <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
               Tangle Duel
@@ -304,9 +335,9 @@ export function GameBoard() {
 
           {hintVisible && !canvasError && (
             <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
-              Przeciągnij kryształy, aż struny
+              Przeciągnij kryształy wewnątrz okręgu,
               <br />
-              przestaną się przecinać.
+              aż struny przestaną się przecinać.
             </p>
           )}
 
@@ -328,9 +359,9 @@ export function GameBoard() {
             aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
             onClick={() => {
               const next = !muted;
-              setMuted(next);
-              synthRef.current?.unlock();
-              synthRef.current?.setMuted(next);
+            onMuted(next);
+            synthRef.current?.unlock();
+            synthRef.current?.setMuted(next);
             }}
             className="pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e0f2fe]"
           >
