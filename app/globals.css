@@ -66,3 +66,24 @@ body {
 .hint-in {
   animation: hint-in 0.7s ease both;
 }
+
+@keyframes seal-glow {
+  0%,
+  100% {
+    box-shadow: 0 10px 28px rgba(125, 211, 252, 0.16);
+  }
+  50% {
+    box-shadow: 0 16px 42px rgba(125, 211, 252, 0.34);
+  }
+}
+
+.play-seal {
+  animation: seal-glow 3.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-seal {
+    animation: none;
+    box-shadow: 0 10px 28px rgba(125, 211, 252, 0.2);
+  }
+}

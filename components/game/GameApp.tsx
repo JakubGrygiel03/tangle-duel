@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { GameBoard } from "@/components/game/GameBoard";
+import { LivingSky } from "@/components/game/LivingSky";
 import {
   readSave,
   readServerSave,
@@ -9,31 +10,13 @@ import {
   updateSave,
   type GameSave,
 } from "@/components/game/storage";
+import { TutorialBoard } from "@/components/game/TutorialBoard";
 
 type Screen = "tutorial" | "menu" | "levels" | "settings" | "play";
-
-const STEPS = [
-  {
-    kicker: "Struny",
-    title: "Przeciągnij kryształ",
-    body: "Każdy kryształ trzyma końce świetlistych strun. Palec zostaje w okręgu — poza nim układ by się nie zmieścił.",
-  },
-  {
-    kicker: "Przecięcia",
-    title: "Bursztyn znaczy skrzyżowanie",
-    body: "Bursztynowa struna i iskra to przecięcie. Lodowobiała struna jest wolna. Licznik u góry pokazuje, ile skrzyżowań zostało.",
-  },
-  {
-    kicker: "Cel",
-    title: "Rozplącz układ",
-    body: "Przesuń jak najmniej kryształów, aż przecięć będzie zero. Liczba przy „Min. ruchy” to tyle przeciągnięć, ile naprawdę trzeba, żeby ten układ się rozwiązał.",
-  },
-];
 
 export function GameApp() {
   const save = useSyncExternalStore(subscribeSave, readSave, readServerSave);
   const [screen, setScreen] = useState<Screen | "auto">("auto");
-  const [step, setStep] = useState(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const [run, setRun] = useState(0);
   const visible: Screen = screen === "auto" ? (save.tutorialSeen ? "menu" : "tutorial") : screen;
@@ -44,10 +27,13 @@ export function GameApp() {
     setScreen("play");
   };
 
+  const openTutorial = () => setScreen("tutorial");
+
   const finishTutorial = () => {
+    const firstVisit = !save.tutorialSeen;
     updateSave((current) => ({ ...current, tutorialSeen: true }));
-    setStep(0);
-    setScreen("menu");
+    if (firstVisit) play(1);
+    else setScreen("menu");
   };
 
   if (visible === "play") {
@@ -71,63 +57,69 @@ export function GameApp() {
     );
   }
 
+  if (visible === "tutorial") {
+    return (
+      <TutorialBoard
+        muted={save.muted}
+        haptics={save.haptics}
+        firstVisit={!save.tutorialSeen}
+        onSkip={() => {
+          updateSave((current) => ({ ...current, tutorialSeen: true }));
+          setScreen("menu");
+        }}
+        onFinish={finishTutorial}
+      />
+    );
+  }
+
   return (
     <div className="game-shell fixed inset-0 flex items-center justify-center bg-[#09090b] text-[#e0f2fe]">
-      <div className="flex h-[100dvh] w-full max-w-[calc(100dvh*9/16)] flex-col px-6 pt-[max(1.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        {visible === "tutorial" && (
-          <Tutorial
-            step={step}
-            onNext={() => {
-              if (step >= STEPS.length - 1) finishTutorial();
-              else setStep((value) => value + 1);
-            }}
-            onSkip={finishTutorial}
-          />
-        )}
-        {visible === "menu" && (
-          <MainMenu
-            level={save.level}
-            onPlay={() => play(save.level)}
-            onLevels={() => setScreen("levels")}
-            onTutorial={() => {
-              setStep(0);
-              setScreen("tutorial");
-            }}
-            onSettings={() => {
-              setConfirmReset(false);
-              setScreen("settings");
-            }}
-          />
-        )}
-        {visible === "levels" && (
-          <LevelSelect
-            current={save.level}
-            cleared={save.cleared}
-            onBack={() => setScreen("menu")}
-            onPick={play}
-          />
-        )}
-        {visible === "settings" && (
-          <SettingsScreen
-            save={save}
-            confirmReset={confirmReset}
-            onBack={() => setScreen("menu")}
-            onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
-            onToggleHaptics={() => updateSave((current) => ({ ...current, haptics: !current.haptics }))}
-            onTutorial={() => {
-              setStep(0);
-              setScreen("tutorial");
-            }}
-            onReset={() => {
-              if (!confirmReset) {
-                setConfirmReset(true);
-                return;
+      <div className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden">
+        <LivingSky mood={visible === "menu" ? "menu" : "calm"} />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#09090b] via-[#09090b]/75 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-64 bg-gradient-to-t from-[#09090b] via-[#09090b]/80 to-transparent" />
+        <div className="relative z-20 flex h-full flex-col px-5 pt-[max(1.15rem,env(safe-area-inset-top))] pb-[max(1.1rem,env(safe-area-inset-bottom))]">
+          {visible === "menu" && (
+            <MainMenu
+              level={save.level}
+              onPlay={() => play(save.level)}
+              onLevels={() => setScreen("levels")}
+              onTutorial={openTutorial}
+              onSettings={() => {
+                setConfirmReset(false);
+                setScreen("settings");
+              }}
+            />
+          )}
+          {visible === "levels" && (
+            <LevelSelect
+              current={save.level}
+              cleared={save.cleared}
+              onBack={() => setScreen("menu")}
+              onPick={play}
+            />
+          )}
+          {visible === "settings" && (
+            <SettingsScreen
+              save={save}
+              confirmReset={confirmReset}
+              onBack={() => setScreen("menu")}
+              onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
+              onToggleHaptics={() =>
+                updateSave((current) => ({ ...current, haptics: !current.haptics }))
               }
-              updateSave((current) => ({ ...current, level: 1, cleared: [] }));
-              setConfirmReset(false);
-            }}
-          />
-        )}
+              onTutorial={openTutorial}
+              onReset={() => {
+                if (!confirmReset) {
+                  setConfirmReset(true);
+                  return;
+                }
+                updateSave((current) => ({ ...current, level: 1, cleared: [] }));
+                setConfirmReset(false);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -148,20 +140,50 @@ function MainMenu({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <p className="text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
-        Łamigłówka
-      </p>
-      <h1 className="mt-4 text-5xl font-light tracking-tight">Tangle Duel</h1>
-      <p className="mt-4 max-w-[18rem] text-base font-light leading-relaxed text-[#e0f2fe]/70">
-        Rozplątuj świetliste struny. Kryształy zostają w okręgu.
-      </p>
-      <div className="mt-auto flex flex-col gap-3">
-        <MenuButton onClick={onPlay} primary>
-          Graj · poziom {level}
-        </MenuButton>
-        <MenuButton onClick={onLevels}>Poziomy</MenuButton>
-        <MenuButton onClick={onTutorial}>Jak grać</MenuButton>
-        <MenuButton onClick={onSettings}>Ustawienia</MenuButton>
+      <div className="pt-2 text-center">
+        <h1 className="text-[3.35rem] font-light leading-[0.84] tracking-[-0.045em]">
+          Tangle
+          <br />
+          Duel
+        </h1>
+        <div className="mx-auto mt-4 flex items-center justify-center gap-3 text-[#e0f2fe]/70">
+          <span className="h-px w-9 bg-current opacity-40" />
+          <Diamond className="text-[#f97316]" />
+          <span className="h-px w-9 bg-current opacity-40" />
+        </div>
+      </div>
+
+      <div className="mt-auto">
+        <button
+          type="button"
+          onClick={onPlay}
+          className="play-seal flex h-[4.6rem] w-full items-center gap-3.5 rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] px-3.5 text-left text-[#0b1020] active:scale-[0.985]"
+        >
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/10">
+            <PlayCrystal />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[1.45rem] font-medium leading-none tracking-wide">Graj</span>
+            <span className="mt-1.5 block text-[13px] font-normal text-[#0b1020]/55">
+              Poziom {level}
+            </span>
+          </span>
+          <span className="ml-auto pr-2 text-[2rem] font-light tabular-nums leading-none">
+            {level}
+          </span>
+        </button>
+
+        <div className="mt-3 grid grid-cols-3 gap-2.5">
+          <DockTile label="Poziomy" onClick={onLevels}>
+            <LevelsIcon />
+          </DockTile>
+          <DockTile label="Jak grać" onClick={onTutorial}>
+            <LearnIcon />
+          </DockTile>
+          <DockTile label="Ustawienia" onClick={onSettings}>
+            <SettingsIcon />
+          </DockTile>
+        </div>
       </div>
     </div>
   );
@@ -178,31 +200,33 @@ function LevelSelect({
   onBack: () => void;
   onPick: (level: number) => void;
 }) {
+  const done = cleared.length;
   return (
-    <div className="flex h-full flex-col">
-      <ScreenHeader title="Poziomy" onBack={onBack} />
-      <p className="mt-3 text-sm font-light text-[#e0f2fe]/60">
-        Piętnaście układów. Zaznaczone są już rozplątane.
-      </p>
-      <div className="mt-6 grid grid-cols-3 gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <ScreenHeader title="Poziomy" kicker={done === 0 ? "Wybierz układ" : `${done} gotowe`} onBack={onBack} />
+      <div className="mt-6 grid min-h-0 flex-1 grid-cols-3 content-start gap-2.5 overflow-y-auto pb-2">
         {Array.from({ length: 15 }, (_, index) => index + 1).map((level) => {
-          const done = cleared.includes(level);
+          const clearedLevel = cleared.includes(level);
           const active = level === current;
           return (
             <button
               key={level}
               type="button"
               onClick={() => onPick(level)}
-              className={`flex h-16 flex-col items-center justify-center rounded-2xl border text-lg font-light tabular-nums ${
+              className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md active:scale-[0.98] ${
                 active
-                  ? "border-[#f97316]/70 bg-[#f97316]/15 text-[#fff7ed]"
-                  : "border-[#e0f2fe]/15 bg-white/5 text-[#e0f2fe]"
+                  ? "border-[#f97316]/80 bg-[#f97316]/18 text-[#fff7ed] shadow-[0_0_24px_rgba(249,115,22,0.28)]"
+                  : clearedLevel
+                    ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
+                    : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
               }`}
             >
-              {level}
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[#e0f2fe]/45">
-                {done ? "Gotowe" : "Gra"}
-              </span>
+              {clearedLevel ? (
+                <Diamond className="mb-0.5 text-[#e0f2fe]" />
+              ) : (
+                <span className="mb-0.5 h-2" />
+              )}
+              <span className="text-[1.65rem] font-light leading-none tabular-nums">{level}</span>
             </button>
           );
         })}
@@ -230,24 +254,24 @@ function SettingsScreen({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <ScreenHeader title="Ustawienia" onBack={onBack} />
-      <div className="mt-8 flex flex-col gap-3">
+      <ScreenHeader title="Ustawienia" kicker="Dźwięk i postęp" onBack={onBack} />
+      <div className="mt-6 flex flex-col gap-2.5">
         <SettingRow
           label="Dźwięk"
-          detail={save.muted ? "Wyłączony" : "Harfa włączona"}
+          detail={save.muted ? "Cisza" : "Harfa włączona"}
           pressed={!save.muted}
           onClick={onToggleMuted}
         />
         <SettingRow
           label="Wibracje"
-          detail={save.haptics ? "Przy chwyceniu kryształu" : "Wyłączone"}
+          detail={save.haptics ? "Przy złapaniu kryształu" : "Wyłączone"}
           pressed={save.haptics}
           onClick={onToggleHaptics}
         />
-        <SettingRow label="Samouczek" detail="Pokaż jeszcze raz" onClick={onTutorial} />
+        <SettingRow label="Nauka" detail="Pokaż jeszcze raz" onClick={onTutorial} />
         <SettingRow
           label={confirmReset ? "Na pewno wyczyścić?" : "Resetuj postęp"}
-          detail={confirmReset ? "Stuknij ponownie" : "Poziomy i odhaczenia"}
+          detail={confirmReset ? "Stuknij jeszcze raz" : "Poziomy wracają na start"}
           danger
           onClick={onReset}
         />
@@ -256,77 +280,52 @@ function SettingsScreen({
   );
 }
 
-function Tutorial({
-  step,
-  onNext,
-  onSkip,
+function ScreenHeader({
+  title,
+  kicker,
+  onBack,
 }: {
-  step: number;
-  onNext: () => void;
-  onSkip: () => void;
+  title: string;
+  kicker: string;
+  onBack: () => void;
 }) {
-  const card = STEPS[step] ?? STEPS[0]!;
-  const last = step >= STEPS.length - 1;
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.32em] text-[#e0f2fe]/45">
-          {step + 1} / {STEPS.length}
-        </p>
-        <button type="button" onClick={onSkip} className="h-11 px-2 text-sm text-[#e0f2fe]/70">
-          Pomiń
-        </button>
-      </div>
-      <p className="mt-10 text-[10px] uppercase tracking-[0.32em] text-[#f97316]">{card.kicker}</p>
-      <h1 className="mt-3 text-4xl font-light leading-tight">{card.title}</h1>
-      <p className="mt-5 text-base font-light leading-relaxed text-[#e0f2fe]/75">{card.body}</p>
-      <div className="mt-auto">
-        <MenuButton onClick={onNext} primary>
-          {last ? "Do menu" : "Dalej"}
-        </MenuButton>
-      </div>
-    </div>
-  );
-}
-
-function ScreenHeader({ title, onBack }: { title: string; onBack: () => void }) {
-  return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3.5">
       <button
         type="button"
         onClick={onBack}
         aria-label="Wróć do menu"
-        className="grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20"
+        className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 backdrop-blur-md"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
-          <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      <h1 className="text-3xl font-light">{title}</h1>
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">{kicker}</p>
+        <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">{title}</h1>
+      </div>
     </div>
   );
 }
 
-function MenuButton({
-  children,
+function DockTile({
+  label,
   onClick,
-  primary = false,
+  children,
 }: {
-  children: ReactNode;
+  label: string;
   onClick: () => void;
-  primary?: boolean;
+  children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`h-14 rounded-full text-base font-light tracking-wide ${
-        primary
-          ? "bg-[#e0f2fe] text-[#09090b]"
-          : "border border-[#e0f2fe]/20 bg-white/5 text-[#e0f2fe]"
-      }`}
+      className="flex h-[4.75rem] flex-col items-center justify-center gap-1.5 rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 text-[#e0f2fe] backdrop-blur-md active:scale-[0.98]"
     >
       {children}
+      <span className="text-[13px] font-normal leading-none">{label}</span>
     </button>
   );
 }
@@ -349,24 +348,71 @@ function SettingRow({
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
-      className="flex h-[4.5rem] items-center justify-between rounded-2xl border border-[#e0f2fe]/15 bg-white/5 px-4 text-left"
+      className="flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border border-[#e0f2fe]/14 bg-black/45 px-4 text-left backdrop-blur-md"
     >
       <span>
-        <span className={`block text-base font-light ${danger ? "text-[#fecaca]" : ""}`}>{label}</span>
-        <span className="mt-1 block text-xs text-[#e0f2fe]/50">{detail}</span>
+        <span className={`block text-[17px] font-normal ${danger ? "text-[#fecaca]" : ""}`}>{label}</span>
+        <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">{detail}</span>
       </span>
       {pressed !== undefined && (
         <span
-          className={`h-7 w-12 rounded-full p-1 ${pressed ? "bg-[#f97316]" : "bg-white/15"}`}
+          className={`h-8 w-[3.25rem] rounded-full p-1 ${pressed ? "bg-[#f97316]" : "bg-white/15"}`}
           aria-hidden="true"
         >
           <span
-            className={`block h-5 w-5 rounded-full bg-white transition-transform ${
+            className={`block h-6 w-6 rounded-full bg-white transition-transform ${
               pressed ? "translate-x-5" : ""
             }`}
           />
         </span>
       )}
     </button>
+  );
+}
+
+function Diamond({ className }: { className?: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className={className}>
+      <path d="M5 0.6 9.2 5 5 9.4 0.8 5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PlayCrystal() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <path d="M13 1.8 23.2 13 13 24.2 2.8 13Z" fill="#0b1020" fillOpacity="0.12" stroke="#0b1020" strokeWidth="1.4" />
+      <path d="M13 7.2 18.2 13 13 18.8 7.8 13Z" fill="#f97316" />
+    </svg>
+  );
+}
+
+function LevelsIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
+      <path d="M6 3.2 8.6 6.2 6 9.2 3.4 6.2Z" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M15.2 6.4 17.8 9.4 15.2 12.4 12.6 9.4Z" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10.2 12.2 12.8 15.2 10.2 18.2 7.6 15.2Z" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+function LearnIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
+      <path d="M6 14.5c2.2-4.8 6.2-6.6 10.2-6.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M13.2 6.2 16.4 8.1 14.2 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6.2" cy="14.6" r="1.5" fill="#f97316" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
+      <path d="M3.5 7.5h15M3.5 14.5h15" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="8" cy="7.5" r="2.1" fill="#09090b" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="14" cy="14.5" r="2.1" fill="#09090b" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
   );
 }
