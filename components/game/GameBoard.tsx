@@ -45,7 +45,8 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
   const callbacks = useRef({ haptics, onCleared, onAdvance });
   const mutedRef = useRef(muted);
   const [hintVisible, setHintVisible] = useState(true);
-  const [holding, setHolding] = useState(false);
+  const [countdown, setCountdown] = useState<3 | 2 | 1 | null>(null);
+  const [countAt, setCountAt] = useState<{ x: number; y: number } | null>(null);
   const [canvasError, setCanvasError] = useState(false);
 
   useEffect(() => {
@@ -73,7 +74,8 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
     let celebrating = false;
     let celebrateStart = 0;
     let holdStart: number | null = null;
-    let holdingShown = false;
+    let shownDigit: 3 | 2 | 1 | null = null;
+    let spotKey = "";
     let introUntil = 0;
     let lastCross: number | null = null;
     let lastMoves: number | null = null;
@@ -94,10 +96,25 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       setMinMoves(count);
     };
 
-    const publishHolding = (next: boolean) => {
-      if (next === holdingShown) return;
-      holdingShown = next;
-      setHolding(next);
+    const publishCountdown = (digit: 3 | 2 | 1 | null) => {
+      if (digit === shownDigit) return;
+      shownDigit = digit;
+      setCountdown(digit);
+    };
+
+    const publishCountSpot = (graphNow: Graph) => {
+      const x = graphNow.arena.cx;
+      const y = graphNow.arena.cy - graphNow.arena.radius * 0.32;
+      const key = `${Math.round(x)}:${Math.round(y)}`;
+      if (key === spotKey) return;
+      spotKey = key;
+      setCountAt({ x, y });
+    };
+
+    const digitFor = (elapsed: number): 3 | 2 | 1 => {
+      if (elapsed < 1000) return 3;
+      if (elapsed < 2000) return 2;
+      return 1;
     };
 
     const readChrome = (): ArenaChrome | undefined => {
@@ -142,7 +159,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       pointerId = null;
       celebrating = false;
       holdStart = null;
-      publishHolding(false);
+      publishCountdown(null);
       const hits = findIntersections(graph.nodes, graph.edges);
       publishCrossings(hits.length);
       publishMoves(next.minimumMoves);
@@ -169,6 +186,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       else fitGraph(graph, width, height, readChrome());
 
       if (graph) {
+        publishCountSpot(graph);
         const hits = findIntersections(graph.nodes, graph.edges);
         const bloom = celebrating ? Math.min(1, (performance.now() - celebrateStart) / VICTORY_MS) : 0;
         paint(hits, bloom);
@@ -191,17 +209,17 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
           if (!celebrating) {
             if (introPlaying || !solved) {
               holdStart = null;
-              publishHolding(false);
+              publishCountdown(null);
             } else {
               if (holdStart === null) holdStart = now;
-              const heldLongEnough = now - holdStart >= HOLD_MS;
-              if (heldLongEnough && nodesSettled(graph)) {
+              const elapsed = now - holdStart;
+              if (elapsed >= HOLD_MS && nodesSettled(graph)) {
                 celebrating = true;
                 celebrateStart = now;
                 dragging = null;
                 pointerId = null;
                 holdStart = null;
-                publishHolding(false);
+                publishCountdown(null);
                 setCleared(true);
                 callbacks.current.onCleared(levelNum);
                 try {
@@ -210,7 +228,8 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
                   // Synteza jest ozdobą. Plansza działa też w ciszy.
                 }
               } else {
-                publishHolding(true);
+                publishCountSpot(graph);
+                publishCountdown(digitFor(elapsed));
               }
             }
           }
@@ -384,7 +403,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
             </div>
           </header>
 
-          {hintVisible && !holding && !canvasError && (
+          {hintVisible && countdown === null && !canvasError && (
             <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
               Przeciągnij kryształy wewnątrz okręgu,
               <br />
@@ -392,12 +411,16 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
             </p>
           )}
 
-          {holding && !cleared && (
+          {countdown !== null && !cleared && countAt && (
             <p
+              key={countdown}
               role="status"
-              className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light tracking-wide text-[#e0f2fe]"
+              aria-live="polite"
+              aria-label={String(countdown)}
+              className="count-arrive pointer-events-none absolute text-[7rem] font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
+              style={{ left: countAt.x, top: countAt.y }}
             >
-              Zostaw tak przez 3 sekundy
+              {countdown}
             </p>
           )}
 

@@ -318,20 +318,20 @@ export function TutorialBoard({
           ref={canvasRef}
           className="absolute inset-0 h-full w-full touch-none"
           role="application"
-          aria-label="Nauka. Przeciągnij kryształ w kółku do jasnego punktu, aż nici przestaną się krzyżować."
+          aria-label="Samouczek. Przeciągnij kryształ w kółku do jasnego punktu, aż nici przestaną się krzyżować."
         />
         <div className="pointer-events-none absolute inset-0">
           <div
             ref={headerRef}
-            className="flex items-center justify-between px-5 pt-[max(0.85rem,env(safe-area-inset-top))]"
+            className="flex items-center justify-between gap-3 px-5 pt-[max(0.85rem,env(safe-area-inset-top))]"
           >
-            <p className="text-[11px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/55">
-              Nauka
-            </p>
+            <h1 className="text-4xl font-light leading-none tracking-[-0.03em] text-[#e0f2fe]">
+              Samouczek
+            </h1>
             <button
               type="button"
               onClick={onSkip}
-              className="pointer-events-auto h-11 px-2 text-sm text-[#e0f2fe]/75"
+              className="pointer-events-auto h-11 shrink-0 px-2 text-sm text-[#e0f2fe]/75"
             >
               Pomiń
             </button>
