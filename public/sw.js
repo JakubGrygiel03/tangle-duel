@@ -1,4 +1,4 @@
-const CACHE = "tangle-duel-v7";
+const CACHE = "tangle-duel-v8";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

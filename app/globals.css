@@ -156,7 +156,7 @@ body {
 
 .studio-card.is-leaving {
   pointer-events: none;
-  animation: studio-leave 0.62s ease forwards;
+  animation: studio-leave 1.3s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 .studio-bloom {
@@ -178,7 +178,7 @@ body {
 }
 
 .studio-card.is-leaving .studio-bloom {
-  animation: studio-bloom 0.62s ease forwards;
+  animation: studio-bloom 1.3s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 .studio-ring {
@@ -278,9 +278,6 @@ body {
   0% {
     opacity: 1;
   }
-  40% {
-    opacity: 1;
-  }
   100% {
     opacity: 0;
   }
@@ -289,14 +286,14 @@ body {
 @keyframes studio-bloom {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.12);
+    transform: translate(-50%, -50%) scale(0.16);
   }
-  36% {
-    opacity: 0.92;
+  32% {
+    opacity: 0.82;
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.85);
+    transform: translate(-50%, -50%) scale(2.05);
   }
 }
 

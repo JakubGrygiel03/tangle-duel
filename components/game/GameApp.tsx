@@ -16,6 +16,10 @@ import type { ArenaChrome } from "@/lib/engine/graph";
 
 type Screen = "tutorial" | "menu" | "levels" | "settings" | "play";
 
+/** Karta studia zostaje czytelna, potem wolno się rozpuszcza. */
+const STUDIO_HOLD_MS = 2400;
+const STUDIO_FADE_MS = 1300;
+
 export function GameApp() {
   const save = useSyncExternalStore(subscribeSave, readSave, readServerSave);
   const [screen, setScreen] = useState<Screen | "auto">("auto");
@@ -36,13 +40,13 @@ export function GameApp() {
 
   useEffect(() => {
     if (studio !== "show") return;
-    const timer = window.setTimeout(() => setStudio("leave"), 2200);
+    const timer = window.setTimeout(() => setStudio("leave"), STUDIO_HOLD_MS);
     return () => window.clearTimeout(timer);
   }, [studio]);
 
   useEffect(() => {
     if (studio !== "leave") return;
-    const timer = window.setTimeout(() => setStudio("done"), 620);
+    const timer = window.setTimeout(() => setStudio("done"), STUDIO_FADE_MS);
     return () => window.clearTimeout(timer);
   }, [studio]);
 
