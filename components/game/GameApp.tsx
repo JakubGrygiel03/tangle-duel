@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { GameBoard } from "@/components/game/GameBoard";
 import { LivingSky } from "@/components/game/LivingSky";
 import {
@@ -11,6 +11,7 @@ import {
   type GameSave,
 } from "@/components/game/storage";
 import { TutorialBoard } from "@/components/game/TutorialBoard";
+import type { ArenaChrome } from "@/lib/engine/graph";
 
 type Screen = "tutorial" | "menu" | "levels" | "settings" | "play";
 
@@ -19,6 +20,8 @@ export function GameApp() {
   const [screen, setScreen] = useState<Screen | "auto">("auto");
   const [confirmReset, setConfirmReset] = useState(false);
   const [run, setRun] = useState(0);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [menuBand, setMenuBand] = useState<ArenaChrome | undefined>(undefined);
   const visible: Screen = screen === "auto" ? (save.tutorialSeen ? "menu" : "tutorial") : screen;
 
   const play = (level: number) => {
@@ -28,6 +31,36 @@ export function GameApp() {
   };
 
   const openTutorial = () => setScreen("tutorial");
+
+  useLayoutEffect(() => {
+    if (visible !== "menu") return;
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const measure = () => {
+      const mark = shell.querySelector("[data-menu-mark]");
+      const play = shell.querySelector("[data-menu-play]");
+      if (!(mark instanceof HTMLElement) || !(play instanceof HTMLElement)) return;
+      const rect = shell.getBoundingClientRect();
+      const top = mark.getBoundingClientRect().bottom - rect.top;
+      const bottom = rect.bottom - play.getBoundingClientRect().top;
+      setMenuBand((current) => {
+        if (current && Math.abs(current.top - top) < 0.5 && Math.abs(current.bottom - bottom) < 0.5) {
+          return current;
+        }
+        return { top, bottom };
+      });
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(shell);
+    const mark = shell.querySelector("[data-menu-mark]");
+    const play = shell.querySelector("[data-menu-play]");
+    if (mark) observer.observe(mark);
+    if (play) observer.observe(play);
+    return () => observer.disconnect();
+  }, [visible]);
 
   const finishTutorial = () => {
     const firstVisit = !save.tutorialSeen;
@@ -74,8 +107,8 @@ export function GameApp() {
 
   return (
     <div className="game-shell fixed inset-0 flex items-center justify-center bg-[#09090b] text-[#e0f2fe]">
-      <div className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden">
-        <LivingSky mood={visible === "menu" ? "menu" : "calm"} />
+      <div ref={shellRef} className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden">
+        <LivingSky mood={visible === "menu" ? "menu" : "calm"} band={visible === "menu" ? menuBand : undefined} />
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#09090b] via-[#09090b]/75 to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-64 bg-gradient-to-t from-[#09090b] via-[#09090b]/80 to-transparent" />
         <div className="relative z-20 flex h-full flex-col px-5 pt-[max(1.15rem,env(safe-area-inset-top))] pb-[max(1.1rem,env(safe-area-inset-bottom))]">
@@ -140,7 +173,7 @@ function MainMenu({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="pt-2 text-center">
+      <div data-menu-mark className="pt-2 text-center">
         <h1 className="text-[3.35rem] font-light leading-[0.84] tracking-[-0.045em]">
           Tangle
           <br />
@@ -156,6 +189,7 @@ function MainMenu({
       <div className="mt-auto">
         <button
           type="button"
+          data-menu-play
           onClick={onPlay}
           className="play-seal flex h-[4.6rem] w-full items-center gap-3.5 rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] px-3.5 text-left text-[#0b1020] active:scale-[0.985]"
         >

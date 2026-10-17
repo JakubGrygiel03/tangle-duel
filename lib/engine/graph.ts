@@ -26,6 +26,12 @@ export type Arena = {
   radius: number;
 };
 
+/** Wolny pas kolumny: dół górnego paska i góra dolnych przycisków. */
+export type ArenaChrome = {
+  top: number;
+  bottom: number;
+};
+
 export type Graph = {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -102,17 +108,32 @@ export function specsForLevel(level: number): LevelSpec {
 /** Ułamek promienia, w którym leżą środki kryształów. Reszta zostaje na obwód. */
 const INSIDE = 0.8;
 const CRYSTAL_PAD = 18;
+/** Odstęp pierścienia od krawędzi kolumny i od HUD / przycisków. */
+const ARENA_GUTTER = 18;
 
-export function computeArena(width: number, height: number): Arena {
+/**
+ * Okrąg w wizualnym środku wolnego pasa między górnym paskiem a dolnymi przyciskami.
+ * Promień bierze mniejszy z szerokości kolumny i wysokości tego pasa.
+ */
+export function computeArena(width: number, height: number, chrome?: ArenaChrome): Arena {
   const w = Math.max(width, 1);
   const h = Math.max(height, 1);
-  const top = Math.min(156, Math.max(104, h * 0.18));
-  const bottom = Math.min(96, Math.max(76, h * 0.11));
-  const room = Math.max(180, h - top - bottom);
-  const radius = Math.max(104, Math.min(w * 0.46 - 6, room / 2 - 2));
+  let top = chrome?.top ?? Math.min(132, Math.max(100, h * 0.135));
+  let bottom = chrome?.bottom ?? Math.min(100, Math.max(72, h * 0.09));
+  const limit = h * 0.46;
+  top = Math.min(Math.max(0, top), limit);
+  bottom = Math.min(Math.max(0, bottom), limit);
+  if (top + bottom > h - 48) {
+    const scale = (h - 48) / Math.max(1, top + bottom);
+    top *= scale;
+    bottom *= scale;
+  }
+  const free = Math.max(32, h - top - bottom);
+  const fitted = Math.min(w, free) / 2 - ARENA_GUTTER;
+  const radius = Math.max(16, Math.min(fitted, w / 2 - 4, free / 2 - 4));
   return {
     cx: w / 2,
-    cy: top + radius,
+    cy: top + free / 2,
     radius,
   };
 }
@@ -589,8 +610,13 @@ function fallbackPlan(): LevelPlan {
   return { solved, tangled, edges, crossings };
 }
 
-export function createLevel(level: number, width: number, height: number): Graph {
-  const arena = computeArena(width, height);
+export function createLevel(
+  level: number,
+  width: number,
+  height: number,
+  chrome?: ArenaChrome,
+): Graph {
+  const arena = computeArena(width, height, chrome);
   const spec = specsForLevel(level);
   let best: LevelPlan | null = null;
 
@@ -614,8 +640,8 @@ export function createLevel(level: number, width: number, height: number): Graph
   };
 }
 
-export function fitGraph(graph: Graph, width: number, height: number): void {
-  const next = computeArena(width, height);
+export function fitGraph(graph: Graph, width: number, height: number, chrome?: ArenaChrome): void {
+  const next = computeArena(width, height, chrome);
   const previous = graph.arena;
   const scale = previous.radius > 0 ? next.radius / previous.radius : 1;
 

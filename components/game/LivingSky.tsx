@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Arena, Graph, GraphEdge, GraphNode } from "@/lib/engine/graph";
+import { computeArena, type Arena, type ArenaChrome, type Graph, type GraphEdge, type GraphNode } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
 
@@ -47,14 +47,20 @@ function tangleAmount(time: number, reduced: boolean): number {
   return smooth((phase - 0.58) / 0.42);
 }
 
-function arenaFor(width: number, height: number, mood: "menu" | "calm"): Arena {
+function arenaFor(
+  width: number,
+  height: number,
+  mood: "menu" | "calm",
+  band?: ArenaChrome,
+): Arena {
   if (mood === "calm") {
     const radius = Math.max(84, Math.min(width * 0.3, height * 0.115));
     const inset = Math.max(28, height * 0.045);
     return { cx: width / 2, cy: height - radius - inset, radius };
   }
-  const radius = Math.max(120, Math.min(width * 0.4, height * 0.185));
-  return { cx: width / 2, cy: height * 0.48, radius };
+  const top = band?.top && band.top > 8 ? band.top : Math.min(height * 0.22, 176);
+  const bottom = band?.bottom && band.bottom > 8 ? band.bottom : Math.min(height * 0.28, 210);
+  return computeArena(width, height, { top, bottom });
 }
 
 function buildGraph(arena: Arena, amount: number): Graph {
@@ -69,8 +75,13 @@ function buildGraph(arena: Arena, amount: number): Graph {
   return { nodes, edges: EDGES, arena, level: 0, minimumMoves: 0 };
 }
 
-export function LivingSky({ mood }: { mood: "menu" | "calm" }) {
+export function LivingSky({ mood, band }: { mood: "menu" | "calm"; band?: ArenaChrome }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bandRef = useRef(band);
+
+  useEffect(() => {
+    bandRef.current = band;
+  }, [band]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -108,7 +119,7 @@ export function LivingSky({ mood }: { mood: "menu" | "calm" }) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       time += dt;
-      const graph = buildGraph(arenaFor(width, height, mood), tangleAmount(time, reduced));
+      const graph = buildGraph(arenaFor(width, height, mood, bandRef.current), tangleAmount(time, reduced));
       const hits = findIntersections(graph.nodes, graph.edges);
       renderer.draw(ctx, { graph, hits, time, bloom: 0, width, height });
       raf = requestAnimationFrame(tick);

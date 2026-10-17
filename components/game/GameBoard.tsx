@@ -9,11 +9,15 @@ import {
   pickNode,
   placeDragTarget,
   stepNodes,
+  type ArenaChrome,
   type Graph,
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
 
+/** Czysty układ musi tyle wytrzymać, zanim poziom się zaliczy. */
+const HOLD_MS = 3000;
+/** Po zaliczeniu: rozbłysk, akord i przejście dalej. */
 const VICTORY_MS = 1500;
 const INTRO_MS = 1100;
 
@@ -30,6 +34,9 @@ type GameBoardProps = {
 export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, onCleared, onAdvance }: GameBoardProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hudRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const muteRef = useRef<HTMLButtonElement>(null);
   const synthRef = useRef<HarpSynth | null>(null);
   const [level, setLevel] = useState(startLevel);
   const [crossings, setCrossings] = useState<number | null>(null);
@@ -38,6 +45,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
   const callbacks = useRef({ haptics, onCleared, onAdvance });
   const mutedRef = useRef(muted);
   const [hintVisible, setHintVisible] = useState(true);
+  const [holding, setHolding] = useState(false);
   const [canvasError, setCanvasError] = useState(false);
 
   useEffect(() => {
@@ -64,6 +72,8 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
     let pointerId: number | null = null;
     let celebrating = false;
     let celebrateStart = 0;
+    let holdStart: number | null = null;
+    let holdingShown = false;
     let introUntil = 0;
     let lastCross: number | null = null;
     let lastMoves: number | null = null;
@@ -84,6 +94,28 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       setMinMoves(count);
     };
 
+    const publishHolding = (next: boolean) => {
+      if (next === holdingShown) return;
+      holdingShown = next;
+      setHolding(next);
+    };
+
+    const readChrome = (): ArenaChrome | undefined => {
+      const hud = hudRef.current;
+      const menu = menuRef.current;
+      const mute = muteRef.current;
+      if (!hud || !menu || !mute) return undefined;
+      const rect = frame.getBoundingClientRect();
+      const hudBox = hud.getBoundingClientRect();
+      const menuBox = menu.getBoundingClientRect();
+      const muteBox = mute.getBoundingClientRect();
+      if (hudBox.height < 8) return undefined;
+      const top = hudBox.bottom - rect.top;
+      const bottom = rect.bottom - Math.min(menuBox.top, muteBox.top);
+      if (top < 8 || bottom < 8) return undefined;
+      return { top, bottom };
+    };
+
     const paint = (hits: ReturnType<typeof findIntersections>, bloom: number) => {
       if (!graph) return;
       renderer.draw(ctx, { graph, hits, time, bloom, width, height });
@@ -94,7 +126,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
 
     const mountLevel = (nextLevel: number, intro: boolean) => {
       levelNum = nextLevel;
-      const next = createLevel(nextLevel, width, height);
+      const next = createLevel(nextLevel, width, height, readChrome());
       if (intro) {
         const pull = 0.62;
         for (const node of next.nodes) {
@@ -109,6 +141,8 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       dragging = null;
       pointerId = null;
       celebrating = false;
+      holdStart = null;
+      publishHolding(false);
       const hits = findIntersections(graph.nodes, graph.edges);
       publishCrossings(hits.length);
       publishMoves(next.minimumMoves);
@@ -132,7 +166,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (!graph) mountLevel(levelNum, false);
-      else fitGraph(graph, width, height);
+      else fitGraph(graph, width, height, readChrome());
 
       if (graph) {
         const hits = findIntersections(graph.nodes, graph.edges);
@@ -151,20 +185,33 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
         if (graph) {
           stepNodes(graph.nodes, dt, celebrating ? null : dragging);
           const hits = findIntersections(graph.nodes, graph.edges);
-          const flying = now < introUntil || !nodesSettled(graph);
+          const introPlaying = now < introUntil;
           const solved = hits.length === 0 && !isDegenerate(graph.nodes);
 
-          if (!celebrating && !flying && solved) {
-            celebrating = true;
-            celebrateStart = now;
-            dragging = null;
-            pointerId = null;
-            setCleared(true);
-            callbacks.current.onCleared(levelNum);
-            try {
-              synth.victoryChord();
-            } catch {
-              // Synteza jest ozdobą. Plansza działa też w ciszy.
+          if (!celebrating) {
+            if (introPlaying || !solved) {
+              holdStart = null;
+              publishHolding(false);
+            } else {
+              if (holdStart === null) holdStart = now;
+              const heldLongEnough = now - holdStart >= HOLD_MS;
+              if (heldLongEnough && nodesSettled(graph)) {
+                celebrating = true;
+                celebrateStart = now;
+                dragging = null;
+                pointerId = null;
+                holdStart = null;
+                publishHolding(false);
+                setCleared(true);
+                callbacks.current.onCleared(levelNum);
+                try {
+                  synth.victoryChord();
+                } catch {
+                  // Synteza jest ozdobą. Plansza działa też w ciszy.
+                }
+              } else {
+                publishHolding(true);
+              }
             }
           }
 
@@ -263,6 +310,9 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
 
     const observer = new ResizeObserver(resize);
     observer.observe(frame);
+    if (hudRef.current) observer.observe(hudRef.current);
+    if (menuRef.current) observer.observe(menuRef.current);
+    if (muteRef.current) observer.observe(muteRef.current);
     window.visualViewport?.addEventListener("resize", resize);
     resize();
     raf = requestAnimationFrame(frameTick);
@@ -308,6 +358,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
 
         <div className="pointer-events-none absolute inset-0">
           <button
+            ref={menuRef}
             type="button"
             onClick={onMenu}
             aria-label="Wróć do menu"
@@ -317,7 +368,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
               <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
-          <header className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))]">
+          <header ref={hudRef} className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))]">
             <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
               Tangle Duel
             </p>
@@ -333,7 +384,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
             </div>
           </header>
 
-          {hintVisible && !canvasError && (
+          {hintVisible && !holding && !canvasError && (
             <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
               Przeciągnij kryształy wewnątrz okręgu,
               <br />
@@ -341,8 +392,20 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
             </p>
           )}
 
+          {holding && !cleared && (
+            <p
+              role="status"
+              className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light tracking-wide text-[#e0f2fe]"
+            >
+              Zostaw tak przez 3 sekundy
+            </p>
+          )}
+
           {cleared && (
-            <p className="hint-in absolute inset-x-4 top-[18%] text-center text-2xl font-light tracking-[0.16em] text-white">
+            <p
+              role="status"
+              className="hint-in absolute inset-x-4 top-[18%] text-center text-2xl font-light tracking-[0.16em] text-white"
+            >
               Rozplątane
             </p>
           )}
@@ -354,6 +417,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
           )}
 
           <button
+            ref={muteRef}
             type="button"
             aria-pressed={muted}
             aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}

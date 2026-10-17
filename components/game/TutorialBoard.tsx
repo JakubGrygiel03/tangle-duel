@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { HarpSynth } from "@/lib/audio/synth";
 import {
+  computeArena,
   placeDragTarget,
   stepNodes,
   type Arena,
+  type ArenaChrome,
   type Graph,
   type GraphNode,
   type Point,
@@ -32,12 +34,12 @@ const EDGES = [
   { a: 4, b: 0 },
 ];
 
-function tutorialArena(width: number, height: number): Arena {
-  const top = Math.min(108, Math.max(72, height * 0.12));
-  const bottom = Math.min(248, Math.max(180, height * 0.3));
-  const room = Math.max(180, height - top - bottom);
-  const radius = Math.max(118, Math.min(width * 0.43 - 8, room * 0.48));
-  return { cx: width / 2, cy: top + room * 0.46, radius };
+function tutorialChrome(height: number, chrome?: ArenaChrome): ArenaChrome {
+  if (chrome && chrome.top > 8 && chrome.bottom > 8) return chrome;
+  return {
+    top: Math.min(96, Math.max(64, height * 0.1)),
+    bottom: Math.min(240, Math.max(150, height * 0.24)),
+  };
 }
 
 function project(unit: readonly [number, number], arena: Arena): Point {
@@ -47,8 +49,8 @@ function project(unit: readonly [number, number], arena: Arena): Point {
   };
 }
 
-function makeGraph(width: number, height: number): { graph: Graph; goal: Point } {
-  const arena = tutorialArena(width, height);
+function makeGraph(width: number, height: number, chrome?: ArenaChrome): { graph: Graph; goal: Point } {
+  const arena = computeArena(width, height, tutorialChrome(height, chrome));
   const nodes: GraphNode[] = UNITS.map((unit, id) => {
     const point = project(unit, arena);
     return { id, x: point.x, y: point.y, tx: point.x, ty: point.y, pluck: 0, grab: 0 };
@@ -83,6 +85,8 @@ export function TutorialBoard({
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const synthRef = useRef<HarpSynth | null>(null);
   const [solved, setSolved] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -122,13 +126,24 @@ export function TutorialBoard({
     let running = true;
     let raf = 0;
 
+    const readChrome = (): ArenaChrome | undefined => {
+      const header = headerRef.current;
+      const card = cardRef.current;
+      if (!header || !card) return undefined;
+      const rect = frame.getBoundingClientRect();
+      const top = header.getBoundingClientRect().bottom - rect.top;
+      const bottom = rect.bottom - card.getBoundingClientRect().top;
+      if (top < 8 || bottom < 8) return undefined;
+      return { top, bottom };
+    };
+
     const resize = () => {
       const rect = frame.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const nextW = Math.max(1, rect.width);
       const nextH = Math.max(1, rect.height);
       const previous = graph.arena;
-      const next = tutorialArena(nextW, nextH);
+      const next = computeArena(nextW, nextH, tutorialChrome(nextH, readChrome()));
       const scale = previous.radius > 0 ? next.radius / previous.radius : 1;
       for (const node of graph.nodes) {
         node.x = next.cx + (node.x - previous.cx) * scale;
@@ -270,6 +285,8 @@ export function TutorialBoard({
 
     const observer = new ResizeObserver(resize);
     observer.observe(frame);
+    if (headerRef.current) observer.observe(headerRef.current);
+    if (cardRef.current) observer.observe(cardRef.current);
     resize();
     raf = requestAnimationFrame(tick);
 
@@ -304,7 +321,10 @@ export function TutorialBoard({
           aria-label="Nauka. Przeciągnij kryształ w kółku do jasnego punktu, aż nici przestaną się krzyżować."
         />
         <div className="pointer-events-none absolute inset-0">
-          <div className="flex items-center justify-between px-5 pt-[max(0.85rem,env(safe-area-inset-top))]">
+          <div
+            ref={headerRef}
+            className="flex items-center justify-between px-5 pt-[max(0.85rem,env(safe-area-inset-top))]"
+          >
             <p className="text-[11px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/55">
               Nauka
             </p>
@@ -316,7 +336,7 @@ export function TutorialBoard({
               Pomiń
             </button>
           </div>
-          <div className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))]">
+          <div ref={cardRef} className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="rounded-[1.4rem] border border-[#e0f2fe]/15 bg-[#09090b]/72 px-5 py-4 backdrop-blur-md">
               <p className="text-lg font-light leading-snug">{line}</p>
               <p className="mt-2 text-[13px] leading-relaxed text-[#e0f2fe]/55">
