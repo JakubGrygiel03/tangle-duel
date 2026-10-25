@@ -10,11 +10,12 @@ import {
   type ReactNode,
 } from "react";
 import { DuelLobby } from "@/components/game/DuelLobby";
-import { GameBoard } from "@/components/game/GameBoard";
+import { GameBoard, type BoardMode, type ClearInfo } from "@/components/game/GameBoard";
 import { LivingSky } from "@/components/game/LivingSky";
 import { StudioCard } from "@/components/game/StudioCard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import {
+  defaultSave,
   readSave,
   readServerSave,
   recordClearedLevel,
@@ -23,12 +24,16 @@ import {
   type GameSave,
 } from "@/components/game/storage";
 import { TutorialBoard } from "@/components/game/TutorialBoard";
+import { CONSTELLATIONS } from "@/lib/engine/constellations";
 import { getDailyChallenge } from "@/lib/engine/daily";
 import {
   AD_COOLDOWN_MS,
   AD_CRYSTAL_REWARD,
-  crystalsForLevel,
+  PERFECT_MOVE_BONUS,
+  SOUND_PACKS,
+  TRAIL_PRICE,
   themeCrystalPrice,
+  type SoundPackId,
 } from "@/lib/engine/economy";
 import { CAMPAIGN_LEVELS, isEndlessUnlocked, type ArenaChrome } from "@/lib/engine/graph";
 import {
@@ -41,8 +46,18 @@ import {
   type VisualTheme,
 } from "@/lib/engine/themes";
 
-type Screen = "tutorial" | "menu" | "levels" | "shop" | "settings" | "play" | "duel" | "event";
-type PlayMode = "campaign" | "daily";
+type Screen =
+  | "tutorial"
+  | "menu"
+  | "levels"
+  | "shop"
+  | "settings"
+  | "play"
+  | "duel"
+  | "event"
+  | "modes"
+  | "album";
+type PlayMode = "campaign" | "daily" | "rush" | "master" | "echo";
 
 const STUDIO_HOLD_MS = 2400;
 const STUDIO_FADE_MS = 1300;
@@ -56,15 +71,21 @@ export function GameApp() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [run, setRun] = useState(0);
   const [playMode, setPlayMode] = useState<PlayMode>("campaign");
+  const [boardMode, setBoardMode] = useState<BoardMode>("classic");
   const [dailySeed, setDailySeed] = useState<number | undefined>(undefined);
   const [unlockNote, setUnlockNote] = useState<string | null>(null);
+  const [rushResult, setRushResult] = useState<number | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const [menuBand, setMenuBand] = useState<ArenaChrome | undefined>(undefined);
   const visible: Screen = screen === "auto" ? (save.tutorialSeen ? "menu" : "tutorial") : screen;
   const dailyDone = save.dailyClaimedOn === daily.day;
 
-  const play = (level: number) => {
-    setPlayMode("campaign");
+  const play = (level: number, mode: PlayMode = "campaign") => {
+    setPlayMode(mode);
+    setBoardMode(
+      mode === "rush" ? "rush" : mode === "master" ? "master" : mode === "echo" ? "echo" : "classic",
+    );
+    setRushResult(null);
     setDailySeed(undefined);
     updateSave((current) => ({ ...current, level }));
     setRun((value) => value + 1);
@@ -74,6 +95,8 @@ export function GameApp() {
   const playDaily = () => {
     const challenge = getDailyChallenge();
     setPlayMode("daily");
+    setBoardMode("classic");
+    setRushResult(null);
     setDailySeed(challenge.seed);
     updateSave((current) => ({ ...current, level: challenge.level }));
     setRun((value) => value + 1);
@@ -137,8 +160,10 @@ export function GameApp() {
     setScreen("menu");
   };
 
-  const onCleared = (level: number) => {
+  const onCleared = (info: ClearInfo) => {
     let note: string | null = null;
+    if (playMode === "rush") return;
+
     if (playMode === "daily") {
       const challenge = getDailyChallenge();
       updateSave((current) => {
@@ -146,11 +171,12 @@ export function GameApp() {
           note = "Daily już zaliczone dziś";
           return current;
         }
-        note = `Daily! +${challenge.reward} kryształów`;
+        const perfectExtra = info.perfect ? PERFECT_MOVE_BONUS : 0;
+        note = `Daily! +${challenge.reward + perfectExtra} kryształów`;
         return {
           ...current,
           dailyClaimedOn: challenge.day,
-          crystals: current.crystals + challenge.reward,
+          crystals: current.crystals + challenge.reward + perfectExtra,
         };
       });
       if (note) setUnlockNote(note);
@@ -158,49 +184,97 @@ export function GameApp() {
     }
 
     updateSave((current) => {
-      const already =
-        (level <= CAMPAIGN_LEVELS && current.clearedCampaign.includes(level)) ||
-        (level > CAMPAIGN_LEVELS && level <= current.endlessBest);
       const unlocked = themesUnlockedByClear(
-        level,
+        info.level,
         current.clearedCampaign,
         current.endlessBest,
         current.purchasedThemes,
       );
-      const next = recordClearedLevel(current, level);
-      if (unlocked[0]) note = `Odblokowano: ${unlocked[0]!.name}`;
-      else if (!already) note = `+${crystalsForLevel(level)} kryształów`;
-      return next;
+      const { save, reward } = recordClearedLevel(current, info.level, {
+        perfect: info.perfect,
+      });
+      if (reward.constellation) {
+        const figure = CONSTELLATIONS.find((item) => item.id === reward.constellation);
+        note = figure ? `${figure.reveal} · +${reward.crystals}` : `+${reward.crystals} kryształów`;
+      } else if (unlocked[0]) note = `Odblokowano: ${unlocked[0]!.name}`;
+      else if (!reward.alreadyCleared && reward.crystals > 0) {
+        note = info.perfect
+          ? `+${reward.crystals} · idealny ruch`
+          : `+${reward.crystals} kryształów`;
+      }
+      return save;
     });
     if (note) setUnlockNote(note);
   };
 
   let stage: ReactNode;
   if (visible === "play") {
-    stage = (
-      <GameBoard
-        key={run}
-        level={save.level}
-        muted={save.muted}
-        haptics={save.haptics}
-        theme={theme}
-        seed={playMode === "daily" ? dailySeed : undefined}
-        race={playMode === "daily"}
-        onMenu={() => setScreen("menu")}
-        onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
-        onCleared={onCleared}
-        onAdvance={(level) => {
-          if (playMode === "daily") return;
-          updateSave((current) => ({ ...current, level }));
-        }}
-      />
-    );
+    if (rushResult !== null) {
+      stage = (
+        <div
+          className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
+          style={{ background: theme.ink }}
+        >
+          <div className="play-bleed">
+            <ThemeBackdrop theme={theme} />
+          </div>
+          <div className="play-column z-10 flex flex-col items-center justify-center px-6 text-center">
+            <p className="text-[11px] uppercase tracking-[0.32em] text-[#e0f2fe]/45">Błyskawica</p>
+            <h2 className="mt-3 text-[2.4rem] font-light tracking-[-0.03em]">Koniec biegu</h2>
+            <p className="mt-4 text-[3.5rem] font-light tabular-nums text-[#f97316]">{rushResult}</p>
+            <p className="mt-1 text-[14px] text-[#e0f2fe]/55">układów z rzędu</p>
+            <button
+              type="button"
+              onClick={() => play(1, "rush")}
+              className="mt-10 h-14 w-full max-w-xs rounded-[1.15rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[16px] font-medium text-[#0b1020]"
+            >
+              Jeszcze raz
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRushResult(null);
+                setScreen("menu");
+              }}
+              className="mt-3 h-12 w-full max-w-xs text-[14px] text-[#e0f2fe]/70"
+            >
+              Menu
+            </button>
+          </div>
+        </div>
+      );
+    } else {
+      stage = (
+        <GameBoard
+          key={run}
+          level={save.level}
+          muted={save.muted}
+          haptics={save.haptics}
+          theme={theme}
+          soundPack={save.soundPack}
+          trail={save.trailOwned && save.trailEnabled}
+          mode={boardMode}
+          seed={playMode === "daily" ? dailySeed : undefined}
+          race={playMode === "daily"}
+          onMenu={() => setScreen("menu")}
+          onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
+          onCleared={onCleared}
+          onAdvance={(level) => {
+            if (playMode === "daily" || playMode === "rush") return;
+            updateSave((current) => ({ ...current, level }));
+          }}
+          onRushOver={(score) => setRushResult(score)}
+        />
+      );
+    }
   } else if (visible === "duel") {
     stage = (
       <DuelLobby
         muted={save.muted}
         haptics={save.haptics}
         theme={theme}
+        soundPack={save.soundPack}
+        trail={save.trailOwned && save.trailEnabled}
         onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
         onBack={() => setScreen("menu")}
       />
@@ -255,18 +329,34 @@ export function GameApp() {
                 theme={theme}
                 dailyDone={dailyDone}
                 dailyReward={daily.reward}
+                albumCount={save.constellations.length}
                 onPlay={() => play(save.level)}
                 onDaily={playDaily}
                 onDuel={() => setScreen("duel")}
-                onEvent={() => setScreen("event")}
+                onModes={() => setScreen("modes")}
                 onLevels={() => setScreen("levels")}
                 onShop={() => setScreen("shop")}
+                onAlbum={() => setScreen("album")}
                 onTutorial={openTutorial}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
                 onSettings={() => {
                   setConfirmReset(false);
                   setScreen("settings");
                 }}
+              />
+            )}
+            {visible === "modes" && (
+              <ModesScreen
+                onBack={() => setScreen("menu")}
+                onRush={() => play(1, "rush")}
+                onMaster={() => play(Math.min(save.level, CAMPAIGN_LEVELS) || 1, "master")}
+                onEcho={() => play(Math.min(save.level, CAMPAIGN_LEVELS) || 1, "echo")}
+              />
+            )}
+            {visible === "album" && (
+              <AlbumScreen
+                unlocked={save.constellations}
+                onBack={() => setScreen("menu")}
               />
             )}
             {visible === "event" && (
@@ -279,8 +369,10 @@ export function GameApp() {
                 endlessBest={save.endlessBest}
                 endlessOpen={isEndlessUnlocked(save.clearedCampaign)}
                 onBack={() => setScreen("menu")}
-                onPick={play}
-                onEndless={() => play(Math.max(CAMPAIGN_LEVELS + 1, save.endlessBest || CAMPAIGN_LEVELS + 1))}
+                onPick={(level) => play(level)}
+                onEndless={() =>
+                  play(Math.max(CAMPAIGN_LEVELS + 1, save.endlessBest || CAMPAIGN_LEVELS + 1))
+                }
               />
             )}
             {visible === "shop" && (
@@ -301,6 +393,35 @@ export function GameApp() {
                     };
                   });
                   setUnlockNote("Motyw odblokowany");
+                }}
+                onPickSound={(id) => updateSave((current) => ({ ...current, soundPack: id }))}
+                onBuySound={(id, price) => {
+                  updateSave((current) => {
+                    if (current.crystals < price) return current;
+                    if (current.purchasedSounds.includes(id)) return current;
+                    return {
+                      ...current,
+                      crystals: current.crystals - price,
+                      purchasedSounds: [...current.purchasedSounds, id],
+                      soundPack: id,
+                    };
+                  });
+                  setUnlockNote("Brzmienie odblokowane");
+                }}
+                onBuyTrail={() => {
+                  updateSave((current) => {
+                    if (current.trailOwned) {
+                      return { ...current, trailEnabled: !current.trailEnabled };
+                    }
+                    if (current.crystals < TRAIL_PRICE) return current;
+                    return {
+                      ...current,
+                      crystals: current.crystals - TRAIL_PRICE,
+                      trailOwned: true,
+                      trailEnabled: true,
+                    };
+                  });
+                  setUnlockNote(save.trailOwned ? "Ślad przełączony" : "Ślad światła odblokowany");
                 }}
                 onWatchAd={() => {
                   const now = Date.now();
@@ -338,16 +459,11 @@ export function GameApp() {
                     setConfirmReset(true);
                     return;
                   }
-                  updateSave((current) => ({
-                    ...current,
-                    level: 1,
-                    clearedCampaign: [],
-                    endlessBest: 0,
-                    themeId: "dusk",
-                    crystals: 0,
-                    purchasedThemes: [],
-                    lastAdAt: 0,
-                    dailyClaimedOn: "",
+                  updateSave(() => ({
+                    ...defaultSave(),
+                    muted: save.muted,
+                    haptics: save.haptics,
+                    tutorialSeen: true,
                   }));
                   setConfirmReset(false);
                 }}
@@ -382,12 +498,14 @@ function MainMenu({
   theme,
   dailyDone,
   dailyReward,
+  albumCount,
   onPlay,
   onDaily,
   onDuel,
-  onEvent,
+  onModes,
   onLevels,
   onShop,
+  onAlbum,
   onTutorial,
   onToggleMuted,
   onSettings,
@@ -398,12 +516,14 @@ function MainMenu({
   theme: VisualTheme;
   dailyDone: boolean;
   dailyReward: number;
+  albumCount: number;
   onPlay: () => void;
   onDaily: () => void;
   onDuel: () => void;
-  onEvent: () => void;
+  onModes: () => void;
   onLevels: () => void;
   onShop: () => void;
+  onAlbum: () => void;
   onTutorial: () => void;
   onToggleMuted: () => void;
   onSettings: () => void;
@@ -486,17 +606,20 @@ function MainMenu({
         </button>
 
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-          <FeatureTile label="Pojedynek" detail="1v1 na kod" onClick={onDuel}>
+          <FeatureTile label="Pojedynek" detail="Kanapa lub kod" onClick={onDuel}>
             <DuelIcon />
           </FeatureTile>
-          <FeatureTile label="Event" detail="Sezonowy" onClick={onEvent}>
+          <FeatureTile label="Tryby" detail="Błyskawica · Echo" onClick={onModes}>
             <EventIcon />
           </FeatureTile>
         </div>
 
-        <div className="mt-2.5 grid grid-cols-3 gap-2.5">
+        <div className="mt-2.5 grid grid-cols-4 gap-2">
           <DockTile label="Poziomy" onClick={onLevels}>
             <LevelsIcon />
+          </DockTile>
+          <DockTile label="Album" onClick={onAlbum}>
+            <AlbumIcon count={albumCount} />
           </DockTile>
           <DockTile label="Sklep" onClick={onShop}>
             <ShopIcon />
@@ -506,6 +629,103 @@ function MainMenu({
           </DockTile>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ModesScreen({
+  onBack,
+  onRush,
+  onMaster,
+  onEcho,
+}: {
+  onBack: () => void;
+  onRush: () => void;
+  onMaster: () => void;
+  onEcho: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ScreenHeader title="Tryby" kicker="Warianty rozgrywki" onBack={onBack} />
+      <div className="mt-6 flex flex-col gap-2.5">
+        <ModeRow
+          title="Błyskawica"
+          detail="15 s · każde rozplątanie +4 s · ile wytrzymasz"
+          onClick={onRush}
+        />
+        <ModeRow
+          title="Mistrz"
+          detail="Tylko ruchy w limicie paru · jak szachy"
+          onClick={onMaster}
+        />
+        <ModeRow
+          title="Echo"
+          detail="Struny ukryte · sonar przy dotknięciu"
+          onClick={onEcho}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModeRow({
+  title,
+  detail,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-[4.75rem] flex-col justify-center rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 px-4 text-left backdrop-blur-md active:scale-[0.985]"
+    >
+      <span className="text-[17px] font-normal">{title}</span>
+      <span className="mt-1 text-[13px] text-[#e0f2fe]/50">{detail}</span>
+    </button>
+  );
+}
+
+function AlbumScreen({
+  unlocked,
+  onBack,
+}: {
+  unlocked: readonly string[];
+  onBack: () => void;
+}) {
+  const open = new Set(unlocked);
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ScreenHeader
+        title="Album"
+        kicker={`${open.size} / ${CONSTELLATIONS.length} konstelacji`}
+        onBack={onBack}
+      />
+      <div className="mt-6 grid min-h-0 flex-1 grid-cols-2 content-start gap-2.5 overflow-y-auto pb-2">
+        {CONSTELLATIONS.map((figure) => {
+          const found = open.has(figure.id);
+          return (
+            <div
+              key={figure.id}
+              className={`flex h-[7.5rem] flex-col items-center justify-center rounded-[1.15rem] border px-3 text-center backdrop-blur-md ${
+                found
+                  ? "border-[#fbbf24]/45 bg-[#fbbf24]/10 text-[#fffbeb]"
+                  : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]/35"
+              }`}
+            >
+              <span className="text-[2rem] font-light leading-none">{found ? "✦" : "·"}</span>
+              <span className="mt-2 text-[15px] font-normal">{found ? figure.name : "???"}</span>
+              <span className="mt-1 text-[11px] opacity-60">Poziom {figure.level}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="pb-2 text-center text-[12px] text-[#e0f2fe]/40">
+        Co 5 poziomów odkrywasz nową figurę
+      </p>
     </div>
   );
 }
@@ -576,6 +796,7 @@ function LevelSelect({
         {Array.from({ length: CAMPAIGN_LEVELS }, (_, index) => index + 1).map((level) => {
           const clearedLevel = cleared.includes(level);
           const active = level === current;
+          const star = level % 5 === 0;
           return (
             <button
               key={level}
@@ -584,12 +805,16 @@ function LevelSelect({
               className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md active:scale-[0.98] ${
                 active
                   ? "border-[#f97316]/80 bg-[#f97316]/18 text-[#fff7ed] shadow-[0_0_24px_rgba(249,115,22,0.28)]"
-                  : clearedLevel
-                    ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
-                    : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
+                  : star
+                    ? "border-[#fbbf24]/45 bg-[#fbbf24]/08 text-[#fffbeb]"
+                    : clearedLevel
+                      ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
+                      : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
               }`}
             >
-              {clearedLevel ? (
+              {star ? (
+                <span className="mb-0.5 text-[10px] text-[#fbbf24]">✦</span>
+              ) : clearedLevel ? (
                 <Diamond className="mb-0.5 text-[#e0f2fe]" />
               ) : (
                 <span className="mb-0.5 h-2" />
@@ -628,6 +853,9 @@ function ShopScreen({
   onNote,
   onPickTheme,
   onBuyTheme,
+  onPickSound,
+  onBuySound,
+  onBuyTrail,
   onWatchAd,
 }: {
   save: GameSave;
@@ -635,6 +863,9 @@ function ShopScreen({
   onNote: (note: string) => void;
   onPickTheme: (id: ThemeId) => void;
   onBuyTheme: (id: ThemeId, price: number) => void;
+  onPickSound: (id: SoundPackId) => void;
+  onBuySound: (id: SoundPackId, price: number) => void;
+  onBuyTrail: () => void;
   onWatchAd: () => void;
 }) {
   const adReady = Date.now() - save.lastAdAt >= AD_COOLDOWN_MS;
@@ -721,6 +952,73 @@ function ShopScreen({
           );
         })}
 
+        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Brzmienia</p>
+        {SOUND_PACKS.map((pack) => {
+          const owned = pack.price === 0 || save.purchasedSounds.includes(pack.id);
+          const active = save.soundPack === pack.id;
+          const canBuy = !owned && save.crystals >= pack.price;
+          return (
+            <button
+              key={pack.id}
+              type="button"
+              disabled={!owned && !canBuy}
+              onClick={() => {
+                if (owned) onPickSound(pack.id);
+                else if (canBuy) onBuySound(pack.id, pack.price);
+                else onNote(`Potrzebujesz ${pack.price} kryształów`);
+              }}
+              className={`flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border px-4 text-left backdrop-blur-md ${
+                active
+                  ? "border-[#f97316]/70 bg-[#f97316]/15"
+                  : owned || canBuy
+                    ? "border-[#e0f2fe]/16 bg-black/45"
+                    : "border-[#e0f2fe]/10 bg-black/25 opacity-55"
+              }`}
+            >
+              <span>
+                <span className="block text-[17px] font-normal">{pack.name}</span>
+                <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
+                  {owned ? (active ? "Aktywne" : pack.detail) : pack.detail}
+                </span>
+              </span>
+              {!owned && (
+                <span className="text-[15px] font-light tabular-nums text-[#e0f2fe]/70">{pack.price}</span>
+              )}
+            </button>
+          );
+        })}
+
+        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Efekty</p>
+        <button
+          type="button"
+          onClick={() => {
+            if (!save.trailOwned && save.crystals < TRAIL_PRICE) {
+              onNote(`Potrzebujesz ${TRAIL_PRICE} kryształów`);
+              return;
+            }
+            onBuyTrail();
+          }}
+          className={`flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border px-4 text-left backdrop-blur-md ${
+            save.trailOwned && save.trailEnabled
+              ? "border-[#f97316]/70 bg-[#f97316]/15"
+              : "border-[#e0f2fe]/16 bg-black/45"
+          }`}
+        >
+          <span>
+            <span className="block text-[17px] font-normal">Ślad światła</span>
+            <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
+              {save.trailOwned
+                ? save.trailEnabled
+                  ? "Włączony · stuknij, by wyłączyć"
+                  : "Wyłączony · stuknij, by włączyć"
+                : "Pył za przeciąganym kryształem"}
+            </span>
+          </span>
+          <span className="text-[15px] font-light tabular-nums text-[#e0f2fe]/70">
+            {save.trailOwned ? (save.trailEnabled ? "ON" : "OFF") : TRAIL_PRICE}
+          </span>
+        </button>
+
         <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Wsparcie</p>
         <SettingRow
           label="Usuń reklamy"
@@ -730,11 +1028,6 @@ function ShopScreen({
         <SettingRow
           label="Paczka kryształów"
           detail="Wkrótce — mała / średnia / duża"
-          onClick={() => onNote("Płatności wkrótce")}
-        />
-        <SettingRow
-          label="Wsparcie twórcy"
-          detail="Wkrótce — kosmetyczna odznaka"
           onClick={() => onNote("Płatności wkrótce")}
         />
       </div>
@@ -1014,6 +1307,20 @@ function EventIcon({ large = false }: { large?: boolean }) {
       />
       <circle cx="11" cy="11" r="1.4" fill="#f97316" />
     </svg>
+  );
+}
+
+function AlbumIcon({ count }: { count: number }) {
+  return (
+    <span className="relative grid place-items-center">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.25" />
+        <path d="M11 5.2 12.2 9.1 16.2 9.3 13.1 11.7 14.1 15.6 11 13.5 7.9 15.6 8.9 11.7 5.8 9.3 9.8 9.1Z" fill="#fbbf24" fillOpacity="0.85" />
+      </svg>
+      {count > 0 && (
+        <span className="absolute -right-1.5 -top-1 text-[9px] tabular-nums text-[#fbbf24]">{count}</span>
+      )}
+    </span>
   );
 }
 

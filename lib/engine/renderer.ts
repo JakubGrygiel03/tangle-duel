@@ -10,6 +10,10 @@ export type DrawModel = {
   width: number;
   height: number;
   theme?: VisualTheme;
+  /** Tryb Echo: struny widoczne tylko podczas sonaru. */
+  echoReveal?: number;
+  /** Ślad pyłu za przeciąganym węzłem. */
+  trail?: readonly { x: number; y: number; life: number }[];
 };
 
 type Mote = {
@@ -38,10 +42,69 @@ export class BoardRenderer {
     this.drawBackground(ctx, width, height, time);
     this.drawMotes(ctx, width, height, time);
     this.drawArena(ctx, graph);
-    this.drawStrings(ctx, graph, hits, time, bloom);
-    this.drawSparks(ctx, hits, time);
+    this.drawOutline(ctx, graph, time, bloom);
+    const reveal = model.echoReveal;
+    const stringsVisible = reveal === undefined || reveal > 0.02;
+    if (stringsVisible) {
+      const prevAlpha = ctx.globalAlpha;
+      if (reveal !== undefined) ctx.globalAlpha = Math.min(1, reveal);
+      this.drawStrings(ctx, graph, hits, time, bloom);
+      this.drawSparks(ctx, hits, time);
+      ctx.globalAlpha = prevAlpha;
+    }
+    if (model.trail && model.trail.length > 0) this.drawTrail(ctx, model.trail);
     this.drawCrystals(ctx, graph, hits, time, bloom);
     this.drawBloom(ctx, graph, bloom, width, height);
+  }
+
+  private drawOutline(
+    ctx: CanvasRenderingContext2D,
+    graph: Graph,
+    time: number,
+    bloom: number,
+  ): void {
+    const outline = graph.outline;
+    if (!outline || outline.length < 2) return;
+    const theme = this.theme;
+    const pulse = 0.12 + 0.06 * Math.sin(time * 1.4);
+    const alpha = pulse + bloom * 0.35;
+
+    ctx.save();
+    ctx.beginPath();
+    for (const edge of graph.edges) {
+      const a = outline[edge.a];
+      const b = outline[edge.b];
+      if (!a || !b) continue;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.strokeStyle = theme.arenaStroke.replace(/[\d.]+\)$/, `${alpha})`);
+    ctx.lineWidth = 1.1;
+    ctx.setLineDash([3.5, 5.5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const point of outline) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = theme.arenaStroke.replace(/[\d.]+\)$/, `${alpha * 1.4})`);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private drawTrail(
+    ctx: CanvasRenderingContext2D,
+    trail: readonly { x: number; y: number; life: number }[],
+  ): void {
+    const theme = this.theme;
+    for (const mote of trail) {
+      if (mote.life <= 0) continue;
+      ctx.beginPath();
+      ctx.arc(mote.x, mote.y, 1.6 + mote.life * 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${theme.moteCool}, ${0.55 * mote.life})`;
+      ctx.fill();
+    }
   }
 
   private ensureMotes(): void {

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CouchDuel } from "@/components/game/CouchDuel";
 import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
+import type { SoundPackId } from "@/lib/engine/economy";
 import {
   openDuelSession,
   randomRoomCode,
@@ -13,6 +15,8 @@ import type { VisualTheme } from "@/lib/engine/themes";
 
 type Phase =
   | { kind: "pick" }
+  | { kind: "online" }
+  | { kind: "couch" }
   | { kind: "host"; code: string; status: string }
   | { kind: "join"; code: string; status: string }
   | { kind: "countdown"; seconds: number; level: number; seed: number }
@@ -23,11 +27,21 @@ type DuelLobbyProps = {
   muted: boolean;
   haptics: boolean;
   theme: VisualTheme;
+  soundPack?: SoundPackId;
+  trail?: boolean;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
 };
 
-export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyProps) {
+export function DuelLobby({
+  muted,
+  haptics,
+  theme,
+  soundPack = "harp",
+  trail = false,
+  onMuted,
+  onBack,
+}: DuelLobbyProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "pick" });
   const [joinInput, setJoinInput] = useState("");
   const sessionRef = useRef<DuelSession | null>(null);
@@ -178,6 +192,20 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
     }
   };
 
+  if (phase.kind === "couch") {
+    return (
+      <CouchDuel
+        muted={muted}
+        haptics={haptics}
+        theme={theme}
+        soundPack={soundPack}
+        trail={trail}
+        onMuted={onMuted}
+        onBack={() => setPhase({ kind: "pick" })}
+      />
+    );
+  }
+
   if (phase.kind === "race") {
     return (
       <GameBoard
@@ -188,6 +216,8 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
         muted={muted}
         haptics={haptics}
         theme={theme}
+        soundPack={soundPack}
+        trail={trail}
         onMenu={() => {
           tearDown();
           onBack();
@@ -209,6 +239,13 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
     );
   }
 
+  const onlineFlow =
+    phase.kind === "online" ||
+    phase.kind === "host" ||
+    phase.kind === "join" ||
+    phase.kind === "countdown" ||
+    phase.kind === "result";
+
   return (
     <div
       className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
@@ -222,10 +259,16 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
           <button
             type="button"
             onClick={() => {
+              if (onlineFlow) {
+                tearDown();
+                setPhase({ kind: "pick" });
+                setJoinInput("");
+                return;
+              }
               tearDown();
               onBack();
             }}
-            aria-label="Wróć do menu"
+            aria-label="Wróć"
             className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 backdrop-blur-md"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
@@ -239,8 +282,12 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
             </svg>
           </button>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Dwa telefony</p>
-            <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">Pojedynek</h1>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">
+              {onlineFlow ? "Dwa telefony" : "Rywalizacja"}
+            </p>
+            <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">
+              {onlineFlow ? "Online" : "Pojedynek"}
+            </h1>
           </div>
         </header>
 
@@ -248,7 +295,34 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
           {phase.kind === "pick" && (
             <>
               <p className="text-[15px] font-light leading-relaxed text-[#e0f2fe]/70">
-                Ten sam układ. Kto pierwszy utrzyma czyste struny przez trzy sekundy, wygrywa.
+                Ten sam układ. Kto pierwszy utrzyma czyste struny, wygrywa — na kanapie albo przez
+                kod.
+              </p>
+              <button
+                type="button"
+                onClick={() => setPhase({ kind: "couch" })}
+                className="mt-8 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[#0b1020]"
+              >
+                <span className="text-[1.25rem] font-medium">Jeden telefon</span>
+                <span className="mt-1 text-[12px] font-normal text-[#0b1020]/55">
+                  Split screen · naprzeciw siebie
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhase({ kind: "online" })}
+                className="mt-3 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem] border border-[#e0f2fe]/20 bg-black/45"
+              >
+                <span className="text-[1.15rem] font-medium">Dwa telefony</span>
+                <span className="mt-1 text-[12px] text-[#e0f2fe]/50">Pokój na kod · online</span>
+              </button>
+            </>
+          )}
+
+          {phase.kind === "online" && (
+            <>
+              <p className="text-[15px] font-light leading-relaxed text-[#e0f2fe]/70">
+                Stwórz pokój albo wpisz kod od znajomego. Bez konta — PeerJS łączy telefony.
               </p>
               <button
                 type="button"
@@ -305,7 +379,7 @@ export function DuelLobby({ muted, haptics, theme, onMuted, onBack }: DuelLobbyP
                 type="button"
                 onClick={() => {
                   tearDown();
-                  setPhase({ kind: "pick" });
+                  setPhase({ kind: "online" });
                   setJoinInput("");
                 }}
                 className="mt-10 h-14 w-full rounded-[1.15rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-base font-medium text-[#0b1020]"

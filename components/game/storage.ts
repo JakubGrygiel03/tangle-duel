@@ -1,4 +1,15 @@
-import { crystalsForLevel } from "@/lib/engine/economy";
+import {
+  constellationBonus,
+  crystalsForLevel,
+  PERFECT_MOVE_BONUS,
+  soundPackById,
+  type SoundPackId,
+} from "@/lib/engine/economy";
+import {
+  CONSTELLATIONS,
+  type ConstellationId,
+  constellationForLevel,
+} from "@/lib/engine/constellations";
 import { CAMPAIGN_LEVELS } from "@/lib/engine/graph";
 import { computeUnlockedThemes, getTheme, type ThemeId } from "@/lib/engine/themes";
 
@@ -21,26 +32,37 @@ export type GameSave = {
   lastAdAt: number;
   /** Dzień (YYYY-MM-DD), za który odebrano nagrodę Daily. */
   dailyClaimedOn: string;
+  /** Odkryte konstelacje (album). */
+  constellations: ConstellationId[];
+  /** Aktywny pakiet brzmienia. */
+  soundPack: SoundPackId;
+  /** Kupione pakiety (oprócz harfy). */
+  purchasedSounds: SoundPackId[];
+  /** Ślad światła za palcem. */
+  trailOwned: boolean;
+  trailEnabled: boolean;
 };
 
 const KEY = "tangle-duel-save";
 
-/** Tymczasowo: pełna kampania + motywy, żeby dało się od razu testować. */
-export const unlockedSave = (): GameSave => ({
+export const defaultSave = (): GameSave => ({
   muted: false,
   haptics: true,
-  tutorialSeen: true,
-  level: CAMPAIGN_LEVELS,
-  clearedCampaign: Array.from({ length: CAMPAIGN_LEVELS }, (_, index) => index + 1),
-  endlessBest: 75,
+  tutorialSeen: false,
+  level: 1,
+  clearedCampaign: [],
+  endlessBest: 0,
   themeId: "dusk",
-  crystals: 120,
+  crystals: 0,
   purchasedThemes: [],
   lastAdAt: 0,
   dailyClaimedOn: "",
+  constellations: [],
+  soundPack: "harp",
+  purchasedSounds: [],
+  trailOwned: false,
+  trailEnabled: false,
 });
-
-export const defaultSave = (): GameSave => unlockedSave();
 
 function sanitizeCampaign(levels: unknown): number[] {
   if (!Array.isArray(levels)) return [];
@@ -56,6 +78,29 @@ function sanitizePurchased(ids: unknown): ThemeId[] {
   const unique = new Set<ThemeId>();
   for (const id of ids) {
     if (typeof id === "string" && getTheme(id).id === id) unique.add(id as ThemeId);
+  }
+  return [...unique];
+}
+
+function sanitizeConstellations(ids: unknown): ConstellationId[] {
+  if (!Array.isArray(ids)) return [];
+  const known = new Set(CONSTELLATIONS.map((item) => item.id));
+  const unique = new Set<ConstellationId>();
+  for (const id of ids) {
+    if (typeof id === "string" && known.has(id as ConstellationId)) {
+      unique.add(id as ConstellationId);
+    }
+  }
+  return [...unique];
+}
+
+function sanitizeSounds(ids: unknown): SoundPackId[] {
+  if (!Array.isArray(ids)) return [];
+  const unique = new Set<SoundPackId>();
+  for (const id of ids) {
+    if (typeof id === "string" && soundPackById(id).id === id && id !== "harp") {
+      unique.add(id as SoundPackId);
+    }
   }
   return [...unique];
 }
@@ -85,6 +130,8 @@ export function loadSave(): GameSave {
         ? Math.max(0, Math.floor(parsed.endlessBest))
         : 0;
     const purchasedThemes = sanitizePurchased(parsed.purchasedThemes);
+    const constellations = sanitizeConstellations(parsed.constellations);
+    const purchasedSounds = sanitizeSounds(parsed.purchasedSounds);
     const unlocked = computeUnlockedThemes(clearedCampaign, endlessBest, purchasedThemes);
     const themeId = getTheme(
       typeof parsed.themeId === "string" && unlocked.includes(parsed.themeId as ThemeId)
@@ -101,6 +148,13 @@ export function loadSave(): GameSave {
         : 0;
     const dailyClaimedOn =
       typeof parsed.dailyClaimedOn === "string" ? parsed.dailyClaimedOn.slice(0, 10) : "";
+    const soundPack = soundPackById(
+      typeof parsed.soundPack === "string" ? parsed.soundPack : "harp",
+    ).id;
+    const ownedSound =
+      soundPack === "harp" || purchasedSounds.includes(soundPack) ? soundPack : "harp";
+    const trailOwned = parsed.trailOwned === true;
+    const trailEnabled = trailOwned && parsed.trailEnabled !== false;
 
     return {
       muted: parsed.muted === true,
@@ -114,6 +168,11 @@ export function loadSave(): GameSave {
       purchasedThemes,
       lastAdAt,
       dailyClaimedOn,
+      constellations,
+      soundPack: ownedSound,
+      purchasedSounds,
+      trailOwned,
+      trailEnabled,
     };
   } catch {
     return defaultSave();
@@ -130,32 +189,7 @@ export function writeSave(save: GameSave): void {
 
 let memory: GameSave = defaultSave();
 if (typeof window !== "undefined") {
-  // Na razie wymuszamy pełny odblokowany postęp (kampania + motywy).
-  memory = { ...unlockedSave(), ...pickPrefs(loadSave()) };
-  writeSave(memory);
-}
-
-function pickPrefs(
-  save: GameSave,
-): Pick<
-  GameSave,
-  "muted" | "haptics" | "themeId" | "crystals" | "purchasedThemes" | "lastAdAt" | "dailyClaimedOn"
-> {
-  const unlocked = computeUnlockedThemes(
-    Array.from({ length: CAMPAIGN_LEVELS }, (_, index) => index + 1),
-    75,
-    save.purchasedThemes,
-  );
-  const themeId = unlocked.includes(save.themeId) ? save.themeId : "dusk";
-  return {
-    muted: save.muted,
-    haptics: save.haptics,
-    themeId,
-    crystals: save.crystals,
-    purchasedThemes: save.purchasedThemes,
-    lastAdAt: save.lastAdAt,
-    dailyClaimedOn: save.dailyClaimedOn,
-  };
+  memory = loadSave();
 }
 
 const listeners = new Set<() => void>();
@@ -185,23 +219,71 @@ export function subscribeSave(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Pierwsze zaliczenie poziomu: postęp + kryształy. */
-export function recordClearedLevel(current: GameSave, level: number): GameSave {
+export type ClearReward = {
+  crystals: number;
+  constellation: ConstellationId | null;
+  alreadyCleared: boolean;
+};
+
+/** Pierwsze zaliczenie poziomu: postęp + kryształy + album. */
+export function recordClearedLevel(
+  current: GameSave,
+  level: number,
+  opts?: { perfect?: boolean },
+): { save: GameSave; reward: ClearReward } {
+  const perfectBonus = opts?.perfect ? PERFECT_MOVE_BONUS : 0;
+  const figure = constellationForLevel(level);
+
   if (level >= 1 && level <= CAMPAIGN_LEVELS) {
-    if (current.clearedCampaign.includes(level)) return current;
+    if (current.clearedCampaign.includes(level)) {
+      return {
+        save: current,
+        reward: { crystals: 0, constellation: null, alreadyCleared: true },
+      };
+    }
+    const base = crystalsForLevel(level);
+    const bonus = constellationBonus(level);
+    const crystals = base + bonus + perfectBonus;
+    const constellations =
+      figure && !current.constellations.includes(figure.id)
+        ? [...current.constellations, figure.id]
+        : current.constellations;
     return {
-      ...current,
-      clearedCampaign: [...current.clearedCampaign, level].sort((a, b) => a - b),
-      crystals: current.crystals + crystalsForLevel(level),
+      save: {
+        ...current,
+        clearedCampaign: [...current.clearedCampaign, level].sort((a, b) => a - b),
+        crystals: current.crystals + crystals,
+        constellations,
+      },
+      reward: {
+        crystals,
+        constellation: figure && !current.constellations.includes(figure.id) ? figure.id : null,
+        alreadyCleared: false,
+      },
     };
   }
+
   if (level > CAMPAIGN_LEVELS) {
-    if (level <= current.endlessBest) return current;
+    if (level <= current.endlessBest) {
+      return {
+        save: current,
+        reward: { crystals: 0, constellation: null, alreadyCleared: true },
+      };
+    }
+    const base = crystalsForLevel(level);
+    const crystals = base + perfectBonus;
     return {
-      ...current,
-      endlessBest: level,
-      crystals: current.crystals + crystalsForLevel(level),
+      save: {
+        ...current,
+        endlessBest: level,
+        crystals: current.crystals + crystals,
+      },
+      reward: { crystals, constellation: null, alreadyCleared: false },
     };
   }
-  return current;
+
+  return {
+    save: current,
+    reward: { crystals: 0, constellation: null, alreadyCleared: true },
+  };
 }

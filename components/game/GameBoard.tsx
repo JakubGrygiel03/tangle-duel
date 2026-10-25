@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import { HarpSynth } from "@/lib/audio/synth";
+import type { SoundPackId } from "@/lib/engine/economy";
 import {
   CAMPAIGN_LEVELS,
   createLevel,
@@ -23,21 +24,51 @@ import { getTheme, type VisualTheme } from "@/lib/engine/themes";
 const HOLD_MS = 3000;
 /** Po zaliczeniu: rozbłysk, akord i przejście dalej. */
 const VICTORY_MS = 1500;
+const CONSTELLATION_VICTORY_MS = 2200;
 const INTRO_MS = 1100;
+const RUSH_START_MS = 15_000;
+const RUSH_BONUS_MS = 4_000;
+const ECHO_REVEAL_MS = 1000;
+
+export type BoardMode = "classic" | "rush" | "master" | "echo";
+
+export type ClearInfo = {
+  level: number;
+  moves: number;
+  minimumMoves: number;
+  perfect: boolean;
+  constellationName?: string;
+};
+
+type TrailMote = { x: number; y: number; life: number };
 
 type GameBoardProps = {
   level: number;
   muted: boolean;
   haptics: boolean;
   theme?: VisualTheme;
+  soundPack?: SoundPackId;
+  trail?: boolean;
+  mode?: BoardMode;
   /** Wspólny seed pojedynku — ten sam układ na obu urządzeniach. */
   seed?: number;
-  /** Po zaliczeniu nie przechodzi dalej (pojedynek). */
+  /** Po zaliczeniu nie przechodzi dalej (pojedynek / daily / rush koniec). */
   race?: boolean;
+  /** Wypełnia rodzica zamiast całego ekranu (split-screen). */
+  embed?: boolean;
+  /** Obrót 180° pod gracza naprzeciw (couch). */
+  inverted?: boolean;
+  /** Ukrywa przyciski menu / wycisz — steruje rodzic. */
+  hideChrome?: boolean;
+  /** Krótsze HUD pod wąski pas split. */
+  compact?: boolean;
+  label?: string;
   onMenu: () => void;
   onMuted: (muted: boolean) => void;
-  onCleared: (level: number) => void;
+  onCleared: (info: ClearInfo) => void;
   onAdvance: (level: number) => void;
+  /** Koniec biegu Rush (czas się skończył). */
+  onRushOver?: (score: number) => void;
 };
 
 export function GameBoard({
@@ -45,12 +76,21 @@ export function GameBoard({
   muted,
   haptics,
   theme,
+  soundPack = "harp",
+  trail = false,
+  mode = "classic",
   seed,
   race = false,
+  embed = false,
+  inverted = false,
+  hideChrome = false,
+  compact = false,
+  label,
   onMenu,
   onMuted,
   onCleared,
   onAdvance,
+  onRushOver,
 }: GameBoardProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,11 +101,25 @@ export function GameBoard({
   const [level, setLevel] = useState(startLevel);
   const [crossings, setCrossings] = useState<number | null>(null);
   const [minMoves, setMinMoves] = useState<number | null>(null);
+  const [moveCount, setMoveCount] = useState(0);
   const [cleared, setCleared] = useState(false);
-  const callbacks = useRef({ haptics, onCleared, onAdvance, race });
+  const [revealName, setRevealName] = useState<string | null>(null);
+  const [rushMs, setRushMs] = useState(mode === "rush" ? RUSH_START_MS : 0);
+  const [rushScore, setRushScore] = useState(0);
+  const callbacks = useRef({
+    haptics,
+    onCleared,
+    onAdvance,
+    race,
+    onRushOver,
+    mode,
+    trail,
+  });
   const mutedRef = useRef(muted);
   const themeRef = useRef(theme ?? getTheme("dusk"));
   const seedRef = useRef(seed);
+  const soundRef = useRef(soundPack);
+  const invertedRef = useRef(inverted);
   const [hintVisible, setHintVisible] = useState(true);
   const [countdown, setCountdown] = useState<3 | 2 | 1 | null>(null);
   const [countAt, setCountAt] = useState<{ x: number; y: number } | null>(null);
@@ -84,6 +138,7 @@ export function GameBoard({
 
     const synth = new HarpSynth();
     synth.setMuted(mutedRef.current);
+    synth.setPack(soundRef.current);
     synthRef.current = synth;
     const renderer = new BoardRenderer();
 
@@ -105,6 +160,13 @@ export function GameBoard({
     let time = 0;
     let raf = 0;
     let running = true;
+    let moves = 0;
+    let echoUntil = 0;
+    let trailMotes: TrailMote[] = [];
+    let rushLeft = callbacks.current.mode === "rush" ? RUSH_START_MS : 0;
+    let rushCleared = 0;
+    let rushEnded = false;
+    let lastHudRush = -1;
 
     const publishCrossings = (count: number) => {
       if (count === lastCross) return;
@@ -152,6 +214,10 @@ export function GameBoard({
     };
 
     const readChrome = (): ArenaChrome | undefined => {
+      // Obrót CSS psuje getBoundingClientRect względem layoutu — stałe pasy.
+      if (embed || invertedRef.current || compact) {
+        return { top: compact ? 52 : 64, bottom: hideChrome ? 12 : 56 };
+      }
       const hud = hudRef.current;
       const menu = menuRef.current;
       const mute = muteRef.current;
@@ -169,6 +235,10 @@ export function GameBoard({
 
     const paint = (hits: ReturnType<typeof findIntersections>, bloom: number) => {
       if (!graph) return;
+      const echoMode = callbacks.current.mode === "echo";
+      const echoReveal = echoMode
+        ? Math.max(0, Math.min(1, (echoUntil - performance.now()) / ECHO_REVEAL_MS))
+        : undefined;
       renderer.draw(ctx, {
         graph,
         hits,
@@ -177,6 +247,8 @@ export function GameBoard({
         width,
         height,
         theme: themeRef.current,
+        echoReveal,
+        trail: callbacks.current.trail ? trailMotes : undefined,
       });
     };
 
@@ -206,11 +278,16 @@ export function GameBoard({
       pointerId = null;
       celebrating = false;
       holdStart = null;
+      moves = 0;
+      echoUntil = 0;
+      trailMotes = [];
       publishCountdown(null);
       const hits = findIntersections(graph.nodes, graph.edges);
       publishCrossings(hits.length);
       publishMoves(next.minimumMoves);
+      setMoveCount(0);
       setLevel(nextLevel);
+      setRevealName(null);
       callbacks.current.onAdvance(nextLevel);
       setCleared(false);
       paint(hits, intro ? 0.35 : 0);
@@ -247,20 +324,49 @@ export function GameBoard({
         last = now;
         time += dt;
 
+        if (callbacks.current.trail && trailMotes.length > 0) {
+          for (const mote of trailMotes) mote.life -= dt * 1.8;
+          trailMotes = trailMotes.filter((mote) => mote.life > 0.02);
+        }
+
+        if (callbacks.current.mode === "rush" && !celebrating && !rushEnded) {
+          rushLeft = Math.max(0, rushLeft - dt * 1000);
+          const shown = Math.ceil(rushLeft / 1000);
+          if (shown !== lastHudRush) {
+            lastHudRush = shown;
+            setRushMs(rushLeft);
+          }
+          if (rushLeft <= 0) {
+            rushEnded = true;
+            callbacks.current.onRushOver?.(rushCleared);
+          }
+        }
+
         if (graph) {
           stepNodes(graph.nodes, dt, celebrating ? null : dragging);
           const hits = findIntersections(graph.nodes, graph.edges);
           const introPlaying = now < introUntil;
           const solved = hits.length === 0 && !isDegenerate(graph.nodes);
+          const masterFail =
+            callbacks.current.mode === "master" &&
+            !celebrating &&
+            moves > graph.minimumMoves &&
+            !solved;
 
-          if (!celebrating) {
+          if (masterFail) {
+            mountLevel(levelNum, true);
+            return;
+          }
+
+          if (!celebrating && !rushEnded) {
             if (introPlaying || !solved) {
               holdStart = null;
               publishCountdown(null);
             } else {
               if (holdStart === null) holdStart = now;
               const elapsed = now - holdStart;
-              if (elapsed >= HOLD_MS && nodesSettled(graph)) {
+              const holdNeed = callbacks.current.mode === "rush" ? 900 : HOLD_MS;
+              if (elapsed >= holdNeed && nodesSettled(graph)) {
                 celebrating = true;
                 celebrateStart = now;
                 dragging = null;
@@ -268,13 +374,29 @@ export function GameBoard({
                 holdStart = null;
                 publishCountdown(null);
                 setCleared(true);
-                callbacks.current.onCleared(levelNum);
+                const name = graph.constellationName;
+                if (name) setRevealName(name);
+                const perfect = moves <= graph.minimumMoves;
+                callbacks.current.onCleared({
+                  level: levelNum,
+                  moves,
+                  minimumMoves: graph.minimumMoves,
+                  perfect,
+                  constellationName: name,
+                });
                 try {
-                  synth.victoryChord();
+                  if (name) synth.constellationChord();
+                  else synth.victoryChord();
                 } catch {
                   // Synteza jest ozdobą. Plansza działa też w ciszy.
                 }
-              } else {
+                if (callbacks.current.mode === "rush") {
+                  rushCleared += 1;
+                  rushLeft += RUSH_BONUS_MS;
+                  setRushScore(rushCleared);
+                  setRushMs(rushLeft);
+                }
+              } else if (callbacks.current.mode !== "rush") {
                 publishCountSpot(graph);
                 publishCountdown(digitFor(elapsed));
               }
@@ -282,12 +404,25 @@ export function GameBoard({
           }
 
           publishCrossings(hits.length);
+          const victorySpan = graph.isConstellation ? CONSTELLATION_VICTORY_MS : VICTORY_MS;
           let bloom = 0;
-          if (celebrating) bloom = Math.min(1, (now - celebrateStart) / VICTORY_MS);
+          if (celebrating) bloom = Math.min(1, (now - celebrateStart) / victorySpan);
           else if (introUntil > now) bloom = Math.max(0, (introUntil - now) / INTRO_MS) * 0.45;
           paint(hits, bloom);
 
-          if (celebrating && now - celebrateStart >= VICTORY_MS && !callbacks.current.race) {
+          if (
+            celebrating &&
+            callbacks.current.mode === "rush" &&
+            now - celebrateStart >= 700 &&
+            !rushEnded
+          ) {
+            mountLevel(Math.max(1, Math.min(12, 3 + Math.floor(rushCleared / 2))), true);
+          } else if (
+            celebrating &&
+            now - celebrateStart >= victorySpan &&
+            !callbacks.current.race &&
+            callbacks.current.mode !== "rush"
+          ) {
             mountLevel(levelNum + 1, true);
           }
         } else {
@@ -305,13 +440,19 @@ export function GameBoard({
 
     const pointFrom = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      let x = event.clientX - rect.left;
+      let y = event.clientY - rect.top;
+      if (invertedRef.current) {
+        x = rect.width - x;
+        y = rect.height - y;
+      }
+      return { x, y };
     };
 
     const onPointerDown = (event: PointerEvent) => {
       if (event.cancelable) event.preventDefault();
       synth.unlock();
-      if (!graph || celebrating || pointerId !== null) return;
+      if (!graph || celebrating || pointerId !== null || rushEnded) return;
 
       const point = pointFrom(event);
       const id = pickNode(graph.nodes, point.x, point.y);
@@ -323,6 +464,9 @@ export function GameBoard({
       pointerId = event.pointerId;
       dragging = id;
       node.pluck = 1;
+      moves += 1;
+      setMoveCount(moves);
+      if (callbacks.current.mode === "echo") echoUntil = performance.now() + ECHO_REVEAL_MS;
       const target = placeDragTarget(graph.nodes, id, point.x, point.y, graph.arena);
       node.tx = target.x;
       node.ty = target.y;
@@ -347,6 +491,9 @@ export function GameBoard({
       const target = placeDragTarget(graph.nodes, node.id, point.x, point.y, graph.arena);
       node.tx = target.x;
       node.ty = target.y;
+      if (callbacks.current.trail && trailMotes.length < 48) {
+        trailMotes.push({ x: target.x, y: target.y, life: 1 });
+      }
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -402,27 +549,63 @@ export function GameBoard({
   }, [startLevel]);
 
   useEffect(() => {
-    callbacks.current = { haptics, onCleared, onAdvance, race };
+    callbacks.current = { haptics, onCleared, onAdvance, race, onRushOver, mode, trail };
     mutedRef.current = muted;
     themeRef.current = theme ?? getTheme("dusk");
     seedRef.current = seed;
+    soundRef.current = soundPack;
+    invertedRef.current = inverted;
     synthRef.current?.setMuted(muted);
-  }, [haptics, muted, onCleared, onAdvance, race, theme, seed]);
+    synthRef.current?.setPack(soundPack);
+  }, [
+    haptics,
+    muted,
+    onCleared,
+    onAdvance,
+    race,
+    onRushOver,
+    mode,
+    trail,
+    theme,
+    seed,
+    soundPack,
+    inverted,
+  ]);
 
   const calm = crossings === 0;
   const activeTheme = theme ?? getTheme("dusk");
   const levelLabel =
     level > CAMPAIGN_LEVELS ? `∞ ${level - CAMPAIGN_LEVELS}` : String(level);
+  const rushUrgent = mode === "rush" && rushMs < 5000;
+  const title =
+    label ??
+    (mode === "rush"
+      ? "Błyskawica"
+      : mode === "master"
+        ? "Mistrz"
+        : mode === "echo"
+          ? "Echo"
+          : "Tangle Duel");
+
+  const shellClass = embed
+    ? "game-shell relative h-full w-full overflow-hidden text-[#e0f2fe]"
+    : "game-shell fixed inset-0 flex items-center justify-center overflow-hidden text-[#e0f2fe]";
+  const columnClass = embed
+    ? "relative z-10 h-full w-full overflow-hidden"
+    : "play-column z-10";
 
   return (
-    <div
-      className="game-shell fixed inset-0 flex items-center justify-center overflow-hidden text-[#e0f2fe]"
-      style={{ background: activeTheme.ink }}
-    >
-      <div className="play-bleed">
-        <ThemeBackdrop theme={activeTheme} />
-      </div>
-      <div ref={frameRef} className="play-column z-10">
+    <div className={shellClass} style={{ background: activeTheme.ink }}>
+      {!embed && (
+        <div className="play-bleed">
+          <ThemeBackdrop theme={activeTheme} />
+        </div>
+      )}
+      <div
+        ref={frameRef}
+        className={columnClass}
+        style={inverted ? { transform: "rotate(180deg)" } : undefined}
+      >
         <canvas
           ref={canvasRef}
           className="absolute inset-0 block h-full w-full touch-none"
@@ -431,34 +614,114 @@ export function GameBoard({
         />
 
         <div className="pointer-events-none absolute inset-0">
-          <button
-            ref={menuRef}
-            type="button"
-            onClick={onMenu}
-            aria-label="Wróć do menu"
-            className="pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
-              <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </button>
-          <header ref={hudRef} className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))]">
-            <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
-              Tangle Duel
-            </p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <HudStat label="Poziom" value={levelLabel} />
-              <HudStat
-                label="Przecięcia"
-                value={crossings === null ? "—" : crossings}
-                tone={calm ? "ice" : "amber"}
-                align="center"
+          {!hideChrome && (
+            <button
+              ref={menuRef}
+              type="button"
+              onClick={onMenu}
+              aria-label="Wróć do menu"
+              className="pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+                <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+          {hideChrome && (
+            <>
+              <button
+                ref={menuRef}
+                type="button"
+                tabIndex={-1}
+                aria-hidden
+                className="pointer-events-none absolute left-2 bottom-2 h-8 w-8 opacity-0"
               />
-              <HudStat label="Min. ruchy" value={minMoves === null ? "—" : minMoves} align="end" />
+              <button
+                ref={muteRef}
+                type="button"
+                tabIndex={-1}
+                aria-hidden
+                className="pointer-events-none absolute right-2 bottom-2 h-8 w-8 opacity-0"
+              />
+            </>
+          )}
+          <header
+            ref={hudRef}
+            className={
+              compact
+                ? "px-3 pt-2"
+                : "px-4 pt-[max(0.85rem,env(safe-area-inset-top))]"
+            }
+          >
+            <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
+              {title}
+            </p>
+            <div className={`mt-2 grid grid-cols-3 gap-2 ${compact ? "mt-1.5" : "mt-3"}`}>
+              {mode === "rush" ? (
+                <>
+                  <HudStat
+                    label="Czas"
+                    value={`${Math.max(0, Math.ceil(rushMs / 1000))}s`}
+                    tone={rushUrgent ? "amber" : "ice"}
+                    compact={compact}
+                  />
+                  <HudStat label="Seria" value={rushScore} align="center" compact={compact} />
+                  <HudStat
+                    label="Przecięcia"
+                    value={crossings === null ? "—" : crossings}
+                    tone={calm ? "ice" : "amber"}
+                    align="end"
+                    compact={compact}
+                  />
+                </>
+              ) : mode === "master" ? (
+                <>
+                  <HudStat label="Ruchy" value={moveCount} compact={compact} />
+                  <HudStat
+                    label="Par"
+                    value={minMoves === null ? "—" : minMoves}
+                    tone={moveCount > (minMoves ?? 99) ? "amber" : "ice"}
+                    align="center"
+                    compact={compact}
+                  />
+                  <HudStat
+                    label="Przecięcia"
+                    value={crossings === null ? "—" : crossings}
+                    tone={calm ? "ice" : "amber"}
+                    align="end"
+                    compact={compact}
+                  />
+                </>
+              ) : (
+                <>
+                  <HudStat label="Poziom" value={levelLabel} compact={compact} />
+                  <HudStat
+                    label="Przecięcia"
+                    value={crossings === null ? "—" : crossings}
+                    tone={calm ? "ice" : "amber"}
+                    align="center"
+                    compact={compact}
+                  />
+                  <HudStat
+                    label="Min. ruchy"
+                    value={minMoves === null ? "—" : minMoves}
+                    align="end"
+                    compact={compact}
+                  />
+                </>
+              )}
             </div>
           </header>
 
-          {hintVisible && countdown === null && !canvasError && (
+          {hintVisible && countdown === null && !canvasError && !compact && mode === "echo" && (
+            <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
+              Dotknij kryształu — sonar na chwilę
+              <br />
+              pokaże struny i przecięcia.
+            </p>
+          )}
+
+          {hintVisible && countdown === null && !canvasError && !compact && mode !== "echo" && (
             <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
               Przeciągnij kryształy wewnątrz okręgu,
               <br />
@@ -482,9 +745,11 @@ export function GameBoard({
           {cleared && (
             <p
               role="status"
-              className="hint-in absolute inset-x-4 top-[18%] text-center text-2xl font-light tracking-[0.16em] text-white"
+              className={`hint-in absolute inset-x-4 text-center font-light tracking-[0.16em] text-white ${
+                compact ? "top-[14%] text-xl" : "top-[18%] text-2xl"
+              }`}
             >
-              Rozplątane
+              {revealName ?? "Rozplątane"}
             </p>
           )}
 
@@ -494,21 +759,23 @@ export function GameBoard({
             </p>
           )}
 
-          <button
-            ref={muteRef}
-            type="button"
-            aria-pressed={muted}
-            aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
-            onClick={() => {
-              const next = !muted;
-            onMuted(next);
-            synthRef.current?.unlock();
-            synthRef.current?.setMuted(next);
-            }}
-            className="pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e0f2fe]"
-          >
-            <SpeakerIcon muted={muted} />
-          </button>
+          {!hideChrome && (
+            <button
+              ref={muteRef}
+              type="button"
+              aria-pressed={muted}
+              aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
+              onClick={() => {
+                const next = !muted;
+                onMuted(next);
+                synthRef.current?.unlock();
+                synthRef.current?.setMuted(next);
+              }}
+              className="pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e0f2fe]"
+            >
+              <SpeakerIcon muted={muted} />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -520,21 +787,23 @@ function HudStat({
   value,
   tone = "ice",
   align = "start",
+  compact = false,
 }: {
   label: string;
   value: number | string;
   tone?: "ice" | "amber";
   align?: "start" | "center" | "end";
+  compact?: boolean;
 }) {
   const alignClass =
     align === "end" ? "text-right" : align === "center" ? "text-center" : "text-left";
   return (
     <div className={alignClass}>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-[#e0f2fe]/55">{label}</p>
+      <p className="text-[9px] uppercase tracking-[0.18em] text-[#e0f2fe]/55">{label}</p>
       <p
-        className={`mt-1 text-3xl font-light leading-none tabular-nums ${
-          tone === "amber" ? "text-[#f97316]" : "text-[#e0f2fe]"
-        }`}
+        className={`mt-0.5 font-light leading-none tabular-nums ${
+          compact ? "text-xl" : "mt-1 text-3xl"
+        } ${tone === "amber" ? "text-[#f97316]" : "text-[#e0f2fe]"}`}
       >
         {value}
       </p>

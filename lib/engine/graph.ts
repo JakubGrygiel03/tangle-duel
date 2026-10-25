@@ -1,3 +1,4 @@
+import { constellationForLevel } from "./constellations";
 import { findIntersections, segmentIntersection } from "./intersections";
 
 export type Point = {
@@ -39,6 +40,11 @@ export type Graph = {
   level: number;
   /** Dolne ograniczenie ruchów policzone na starcie układu. */
   minimumMoves: number;
+  /** Subtelny zarys figury (konstelacja) — punkty w pikselach CSS. */
+  outline?: Point[];
+  /** Nazwa konstelacji do flasha po rozplątaniu. */
+  constellationName?: string;
+  isConstellation?: boolean;
 };
 
 export type LevelPlan = {
@@ -46,6 +52,8 @@ export type LevelPlan = {
   tangled: Point[];
   edges: GraphEdge[];
   crossings: number;
+  constellationName?: string;
+  isConstellation?: boolean;
 };
 
 export type LevelSpec = {
@@ -523,6 +531,25 @@ function crosses(points: readonly Point[], edges: readonly GraphEdge[]): boolean
 }
 
 export function planLevel(level: number, seed: number): LevelPlan | null {
+  const figure = constellationForLevel(level);
+  if (figure) {
+    const rnd = mulberry32(seed ^ 0xc0ffee);
+    const solved = figure.solved.map((point) => ({ x: point.x, y: point.y }));
+    const edges = figure.edges.map((edge) => ({ a: edge.a, b: edge.b }));
+    if (crosses(solved, edges)) return null;
+    const minCross = Math.max(1, Math.min(4, Math.floor(solved.length / 2)));
+    const tangled = tanglePoints(solved, edges, 0, minCross, rnd);
+    if (!tangled) return null;
+    return {
+      solved,
+      tangled: tangled.points,
+      edges,
+      crossings: tangled.crossings,
+      constellationName: figure.reveal,
+      isConstellation: true,
+    };
+  }
+
   const spec = specsForLevel(level);
   if (spec.nodes < 4) return null;
 
@@ -684,12 +711,18 @@ function fallbackPlan(): LevelPlan {
 
 function graphFromPlan(level: number, plan: LevelPlan, arena: Arena): Graph {
   const nodes = nodesFrom(plan.tangled.map((point) => scalePoint(point, arena)));
+  const outline = plan.isConstellation
+    ? plan.solved.map((point) => scalePoint(point, arena))
+    : undefined;
   return {
     nodes,
     edges: plan.edges,
     arena,
     level,
     minimumMoves: movesToUntangle(plan.solved, plan.tangled, plan.edges),
+    outline,
+    constellationName: plan.constellationName,
+    isConstellation: plan.isConstellation === true,
   };
 }
 
@@ -751,6 +784,13 @@ export function fitGraph(graph: Graph, width: number, height: number, chrome?: A
     node.y = next.cy + dy * scale;
     node.tx = next.cx + tdx * scale;
     node.ty = next.cy + tdy * scale;
+  }
+
+  if (graph.outline) {
+    graph.outline = graph.outline.map((point) => ({
+      x: next.cx + (point.x - previous.cx) * scale,
+      y: next.cy + (point.y - previous.cy) * scale,
+    }));
   }
 
   graph.arena = next;
