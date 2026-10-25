@@ -1,5 +1,6 @@
 import type { Graph, GraphNode } from "./graph";
 import type { IntersectionHit } from "./intersections";
+import { getTheme, type VisualTheme } from "./themes";
 
 export type DrawModel = {
   graph: Graph;
@@ -8,6 +9,7 @@ export type DrawModel = {
   bloom: number;
   width: number;
   height: number;
+  theme?: VisualTheme;
 };
 
 type Mote = {
@@ -22,9 +24,15 @@ type Mote = {
 
 export class BoardRenderer {
   private motes: Mote[] = [];
+  private theme: VisualTheme = getTheme("dusk");
+
+  setTheme(theme: VisualTheme): void {
+    this.theme = theme;
+  }
 
   draw(ctx: CanvasRenderingContext2D, model: DrawModel): void {
     const { graph, hits, time, bloom, width, height } = model;
+    if (model.theme) this.theme = model.theme;
     this.ensureMotes();
 
     this.drawBackground(ctx, width, height, time);
@@ -57,7 +65,8 @@ export class BoardRenderer {
     height: number,
     time: number,
   ): void {
-    ctx.fillStyle = "#09090b";
+    const theme = this.theme;
+    ctx.fillStyle = theme.ink;
     ctx.fillRect(0, 0, width, height);
 
     const driftX = Math.sin(time * 0.13) * width * 0.06;
@@ -71,9 +80,9 @@ export class BoardRenderer {
       height * 0.48,
       Math.max(width, height) * 0.72,
     );
-    dusk.addColorStop(0, "rgba(67, 56, 140, 0.55)");
-    dusk.addColorStop(0.42, "rgba(30, 27, 75, 0.32)");
-    dusk.addColorStop(1, "rgba(9, 9, 11, 0)");
+    dusk.addColorStop(0, theme.sky.a);
+    dusk.addColorStop(0.42, theme.sky.b);
+    dusk.addColorStop(1, theme.sky.c);
     ctx.fillStyle = dusk;
     ctx.fillRect(0, 0, width, height);
 
@@ -85,8 +94,8 @@ export class BoardRenderer {
       height * 0.72,
       height * 0.48,
     );
-    tide.addColorStop(0, "rgba(12, 74, 110, 0.38)");
-    tide.addColorStop(1, "rgba(9, 9, 11, 0)");
+    tide.addColorStop(0, theme.tide.a);
+    tide.addColorStop(1, theme.tide.b);
     ctx.fillStyle = tide;
     ctx.fillRect(0, 0, width, height);
 
@@ -98,8 +107,8 @@ export class BoardRenderer {
       height * 0.12,
       width * 0.55,
     );
-    ember.addColorStop(0, "rgba(124, 45, 18, 0.22)");
-    ember.addColorStop(1, "rgba(9, 9, 11, 0)");
+    ember.addColorStop(0, theme.ember.a);
+    ember.addColorStop(1, theme.ember.b);
     ctx.fillStyle = ember;
     ctx.fillRect(0, 0, width, height);
 
@@ -123,6 +132,7 @@ export class BoardRenderer {
     height: number,
     time: number,
   ): void {
+    const theme = this.theme;
     ctx.shadowBlur = 0;
     for (const mote of this.motes) {
       const x =
@@ -131,26 +141,27 @@ export class BoardRenderer {
       const y = ((mote.baseY - time * mote.speed) % height + height) % height;
       ctx.beginPath();
       ctx.fillStyle = mote.amber
-        ? `rgba(249, 115, 22, ${mote.alpha})`
-        : `rgba(224, 242, 254, ${mote.alpha})`;
+        ? `rgba(${theme.moteWarm}, ${mote.alpha})`
+        : `rgba(${theme.moteCool}, ${mote.alpha})`;
       ctx.arc(x, y, mote.radius, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   private drawArena(ctx: CanvasRenderingContext2D, graph: Graph): void {
+    const theme = this.theme;
     const { cx, cy, radius } = graph.arena;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(224, 242, 254, 0.03)";
+    ctx.fillStyle = theme.arenaFill;
     ctx.fill();
     ctx.lineWidth = 1.4;
-    ctx.strokeStyle = "rgba(224, 242, 254, 0.28)";
+    ctx.strokeStyle = theme.arenaStroke;
     ctx.stroke();
 
     ctx.beginPath();
     ctx.arc(cx, cy, radius * 1.08, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(224, 242, 254, 0.06)";
+    ctx.strokeStyle = theme.arenaStroke.replace(/[\d.]+\)$/, "0.06)");
     ctx.stroke();
   }
 
@@ -190,6 +201,7 @@ export class BoardRenderer {
     time: number,
     bloom: number,
   ): void {
+    const theme = this.theme;
     const edge = graph.edges[index];
     if (!edge) return;
     const a = graph.nodes[edge.a];
@@ -201,25 +213,25 @@ export class BoardRenderer {
     ctx.lineJoin = "round";
 
     if (crossed) {
-      ctx.shadowColor = "rgba(239, 68, 68, 0.9)";
+      ctx.shadowColor = theme.tangledGlow;
       ctx.shadowBlur = 14;
-      ctx.strokeStyle = "#f97316";
+      ctx.strokeStyle = theme.tangled;
       ctx.lineWidth = 2.35;
       ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = "rgba(255, 237, 213, 0.92)";
+      ctx.strokeStyle = theme.tangledCore;
       ctx.lineWidth = 0.9;
       ctx.stroke();
       return;
     }
 
-    ctx.shadowColor = "rgba(224, 242, 254, 0.95)";
+    ctx.shadowColor = theme.freeGlow;
     ctx.shadowBlur = 16 + bloom * 18;
-    ctx.strokeStyle = "#e0f2fe";
+    ctx.strokeStyle = theme.free;
     ctx.lineWidth = 1.85;
     ctx.stroke();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.strokeStyle = theme.freeCore;
     ctx.lineWidth = 0.85;
     ctx.stroke();
   }
@@ -254,19 +266,21 @@ export class BoardRenderer {
     hits: readonly IntersectionHit[],
     time: number,
   ): void {
+    const theme = this.theme;
     hits.forEach((hit, index) => {
       const pulse = 0.55 + 0.45 * Math.sin(time * 6.2 + index * 1.4);
       ctx.save();
       ctx.translate(hit.point.x, hit.point.y);
-      ctx.shadowColor = "rgba(249, 115, 22, 0.95)";
+      ctx.shadowColor = theme.tangledGlow;
       ctx.shadowBlur = 16;
-      ctx.fillStyle = `rgba(255, 237, 213, ${0.35 + pulse * 0.6})`;
+      ctx.fillStyle = theme.tangledCore.replace(/[\d.]+\)$/, `${0.35 + pulse * 0.6})`);
       ctx.beginPath();
       ctx.arc(0, 0, 2.2 + pulse * 2.1, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = `rgba(239, 68, 68, ${0.45 + pulse * 0.45})`;
+      ctx.strokeStyle = theme.spark;
+      ctx.globalAlpha = 0.45 + pulse * 0.45;
       ctx.lineWidth = 1;
       const arm = 5 + pulse * 6;
       ctx.beginPath();
@@ -315,12 +329,13 @@ export class BoardRenderer {
     time: number,
     bloom: number,
   ): void {
+    const theme = this.theme;
     const radius = 8 + node.grab * 2.6 + bloom * 1.4;
 
     if (node.grab > 0.04) {
       ctx.beginPath();
       ctx.arc(node.x, node.y, 22, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(224, 242, 254, ${0.16 * node.grab})`;
+      ctx.strokeStyle = theme.arenaStroke.replace(/[\d.]+\)$/, `${0.16 * node.grab})`);
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -328,19 +343,14 @@ export class BoardRenderer {
     ctx.save();
     ctx.translate(node.x, node.y);
     ctx.rotate(Math.PI / 4 + Math.sin(time * 0.7 + node.id) * 0.06);
-    ctx.shadowColor = warm ? "rgba(249, 115, 22, 0.95)" : "rgba(224, 242, 254, 0.95)";
+    ctx.shadowColor = warm ? theme.tangledGlow : theme.freeGlow;
     ctx.shadowBlur = 12 + node.grab * 12;
 
     const facet = ctx.createLinearGradient(-radius, -radius, radius, radius);
-    if (warm) {
-      facet.addColorStop(0, "#fff7ed");
-      facet.addColorStop(0.45, "#fdba74");
-      facet.addColorStop(1, "#c2410c");
-    } else {
-      facet.addColorStop(0, "#ffffff");
-      facet.addColorStop(0.5, "#e0f2fe");
-      facet.addColorStop(1, "#7dd3fc");
-    }
+    const palette = warm ? theme.crystalWarm : theme.crystalCool;
+    facet.addColorStop(0, palette[0]);
+    facet.addColorStop(0.5, palette[1]);
+    facet.addColorStop(1, palette[2]);
 
     ctx.fillStyle = facet;
     this.diamond(ctx, radius);
@@ -369,6 +379,7 @@ export class BoardRenderer {
     height: number,
   ): void {
     if (bloom <= 0) return;
+    const theme = this.theme;
     const eased = 1 - (1 - bloom) ** 2;
     const alpha = Math.sin(Math.min(1, bloom) * Math.PI);
     const { cx, cy } = graph.arena;
@@ -377,15 +388,15 @@ export class BoardRenderer {
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, Math.max(4, radius), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(224, 242, 254, ${0.8 * alpha})`;
+    ctx.strokeStyle = theme.bloomRing.replace(/[\d.]+\)$/, `${0.8 * alpha})`);
     ctx.lineWidth = 10 * (1 - bloom) + 1.5;
     ctx.shadowColor = "rgba(255, 255, 255, 0.95)";
     ctx.shadowBlur = 28;
     ctx.stroke();
 
     const flash = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.65);
-    flash.addColorStop(0, `rgba(224, 242, 254, ${0.28 * alpha})`);
-    flash.addColorStop(1, "rgba(224, 242, 254, 0)");
+    flash.addColorStop(0, `rgba(${theme.bloomFlash}, ${0.28 * alpha})`);
+    flash.addColorStop(1, `rgba(${theme.bloomFlash}, 0)`);
     ctx.shadowBlur = 0;
     ctx.fillStyle = flash;
     ctx.fillRect(0, 0, width, height);

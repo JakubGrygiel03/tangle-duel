@@ -58,51 +58,123 @@ export type LevelSpec = {
 /** Średnica celu dotyku. Wizualny kryształ jest mniejszy. */
 export const TOUCH_RADIUS = 44;
 
+/** Kampania ma stałą długość; potem idą levele nieskończone. */
+export const CAMPAIGN_LEVELS = 60;
+/** Górny sensowny limit węzłów pod kciukiem. */
+export const MAX_NODES = 16;
+
 const MIN_DRAG_GAP = 22;
 const DEGENERATE_GAP = 12;
 const SPRING = 22;
 
+function edgeCap(nodes: number): number {
+  return Math.max(0, 2 * nodes - 5);
+}
+
 export function specsForLevel(level: number): LevelSpec {
   const safe = Math.max(1, Math.floor(level));
 
-  if (safe <= 3) {
-    return {
-      nodes: safe === 1 ? 5 : 6,
-      extraEdges: safe,
-      minCrossings: safe === 1 ? 1 : 2,
-      innerNodes: 1,
-    };
-  }
-
-  if (safe <= 7) {
-    const nodes = safe === 4 ? 7 : safe === 7 ? 9 : 8;
-    return {
-      nodes,
-      extraEdges: 3 + (safe - 4),
-      minCrossings: 3,
-      innerNodes: 2,
-    };
-  }
-
-  if (safe <= 12) {
-    const nodes = safe <= 9 ? 10 : safe <= 11 ? 11 : 12;
-    const cap = Math.max(0, 2 * nodes - 5);
+  // Rozdział 1 — pierwsze kroki.
+  if (safe <= 10) {
+    if (safe <= 3) {
+      return {
+        nodes: safe === 1 ? 5 : 6,
+        extraEdges: safe,
+        minCrossings: safe === 1 ? 1 : 2,
+        innerNodes: 1,
+      };
+    }
+    if (safe <= 7) {
+      const nodes = safe === 4 ? 7 : safe === 7 ? 9 : 8;
+      return {
+        nodes,
+        extraEdges: 3 + (safe - 4),
+        minCrossings: 3,
+        innerNodes: 2,
+      };
+    }
+    const nodes = safe <= 9 ? 10 : 11;
     return {
       nodes,
-      extraEdges: Math.min(cap, 5 + (safe - 8)),
+      extraEdges: Math.min(edgeCap(nodes), 5 + (safe - 8)),
       minCrossings: 4 + Math.floor((safe - 8) / 2),
       innerNodes: 0,
     };
   }
 
-  const nodes = Math.min(15, 13 + (safe - 13));
-  const cap = Math.max(0, 2 * nodes - 5);
+  // Rozdział 2 — gęstsza sieć.
+  if (safe <= 20) {
+    const nodes = Math.min(MAX_NODES, 11 + Math.floor((safe - 11) / 3));
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 6 + Math.floor((safe - 11) / 2)),
+      minCrossings: 5 + Math.floor((safe - 11) / 2),
+      innerNodes: safe <= 14 ? 1 : 0,
+    };
+  }
+
+  // Rozdział 3 — więcej przecięć.
+  if (safe <= 30) {
+    const nodes = Math.min(MAX_NODES, 12 + Math.floor((safe - 21) / 4));
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 8 + Math.floor((safe - 21) / 2)),
+      minCrossings: 7 + Math.floor((safe - 21) / 2),
+      innerNodes: 0,
+    };
+  }
+
+  // Rozdział 4 — duże konstelacje.
+  if (safe <= 40) {
+    const nodes = Math.min(MAX_NODES, 13 + Math.floor((safe - 31) / 3));
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 10 + Math.floor((safe - 31) / 2)),
+      minCrossings: 9 + Math.floor((safe - 31) / 2),
+      innerNodes: 0,
+    };
+  }
+
+  // Rozdział 5 — gęstość przy limicie węzłów.
+  if (safe <= 50) {
+    const nodes = Math.min(MAX_NODES, 14 + Math.floor((safe - 41) / 4));
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 12 + Math.floor((safe - 41) / 2)),
+      minCrossings: 11 + Math.floor((safe - 41) / 2),
+      innerNodes: 0,
+    };
+  }
+
+  // Rozdział 6 — finał kampanii.
+  if (safe <= CAMPAIGN_LEVELS) {
+    const nodes = MAX_NODES;
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 14 + Math.floor((safe - 51) / 2)),
+      minCrossings: 13 + Math.floor((safe - 51) / 2),
+      innerNodes: 0,
+    };
+  }
+
+  // Nieskończone: ten sam limit węzłów, trudność rośnie wolniej.
+  const over = safe - CAMPAIGN_LEVELS;
+  const nodes = MAX_NODES;
+  const bump = Math.floor(Math.sqrt(over));
   return {
     nodes,
-    extraEdges: Math.min(cap, 8 + Math.min(6, safe - 12)),
-    minCrossings: 6 + Math.min(4, safe - 13),
+    extraEdges: Math.min(edgeCap(nodes), 16 + bump),
+    minCrossings: Math.min(28, 15 + bump + Math.floor(over / 8)),
     innerNodes: 0,
   };
+}
+
+export function isCampaignLevel(level: number): boolean {
+  return level >= 1 && level <= CAMPAIGN_LEVELS;
+}
+
+export function isEndlessUnlocked(clearedCampaign: readonly number[]): boolean {
+  return clearedCampaign.includes(CAMPAIGN_LEVELS);
 }
 
 /** Ułamek promienia, w którym leżą środki kryształów. Reszta zostaje na obwód. */
@@ -610,6 +682,17 @@ function fallbackPlan(): LevelPlan {
   return { solved, tangled, edges, crossings };
 }
 
+function graphFromPlan(level: number, plan: LevelPlan, arena: Arena): Graph {
+  const nodes = nodesFrom(plan.tangled.map((point) => scalePoint(point, arena)));
+  return {
+    nodes,
+    edges: plan.edges,
+    arena,
+    level,
+    minimumMoves: movesToUntangle(plan.solved, plan.tangled, plan.edges),
+  };
+}
+
 export function createLevel(
   level: number,
   width: number,
@@ -628,16 +711,30 @@ export function createLevel(
     if (plan.crossings >= spec.minCrossings) break;
   }
 
-  const ready = best ?? fallbackPlan();
-  const nodes = nodesFrom(ready.tangled.map((point) => scalePoint(point, arena)));
+  return graphFromPlan(level, best ?? fallbackPlan(), arena);
+}
 
-  return {
-    nodes,
-    edges: ready.edges,
-    arena,
-    level,
-    minimumMoves: movesToUntangle(ready.solved, ready.tangled, ready.edges),
-  };
+/** Ten sam układ na obu urządzeniach w pojedynku. */
+export function createLevelWithSeed(
+  level: number,
+  seed: number,
+  width: number,
+  height: number,
+  chrome?: ArenaChrome,
+): Graph {
+  const arena = computeArena(width, height, chrome);
+  const spec = specsForLevel(level);
+  let best: LevelPlan | null = null;
+
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const trySeed = seed + attempt * 7919;
+    const plan = planLevel(level, trySeed);
+    if (!plan) continue;
+    if (!best || plan.crossings > best.crossings) best = plan;
+    if (plan.crossings >= spec.minCrossings) break;
+  }
+
+  return graphFromPlan(level, best ?? fallbackPlan(), arena);
 }
 
 export function fitGraph(graph: Graph, width: number, height: number, chrome?: ArenaChrome): void {

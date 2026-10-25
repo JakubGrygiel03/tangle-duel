@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import { HarpSynth } from "@/lib/audio/synth";
 import {
+  CAMPAIGN_LEVELS,
   createLevel,
+  createLevelWithSeed,
   fitGraph,
   isDegenerate,
   pickNode,
@@ -14,6 +17,7 @@ import {
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
+import { getTheme, type VisualTheme } from "@/lib/engine/themes";
 
 /** Czysty układ musi tyle wytrzymać, zanim poziom się zaliczy. */
 const HOLD_MS = 3000;
@@ -25,13 +29,29 @@ type GameBoardProps = {
   level: number;
   muted: boolean;
   haptics: boolean;
+  theme?: VisualTheme;
+  /** Wspólny seed pojedynku — ten sam układ na obu urządzeniach. */
+  seed?: number;
+  /** Po zaliczeniu nie przechodzi dalej (pojedynek). */
+  race?: boolean;
   onMenu: () => void;
   onMuted: (muted: boolean) => void;
   onCleared: (level: number) => void;
   onAdvance: (level: number) => void;
 };
 
-export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, onCleared, onAdvance }: GameBoardProps) {
+export function GameBoard({
+  level: startLevel,
+  muted,
+  haptics,
+  theme,
+  seed,
+  race = false,
+  onMenu,
+  onMuted,
+  onCleared,
+  onAdvance,
+}: GameBoardProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hudRef = useRef<HTMLElement>(null);
@@ -42,8 +62,10 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
   const [crossings, setCrossings] = useState<number | null>(null);
   const [minMoves, setMinMoves] = useState<number | null>(null);
   const [cleared, setCleared] = useState(false);
-  const callbacks = useRef({ haptics, onCleared, onAdvance });
+  const callbacks = useRef({ haptics, onCleared, onAdvance, race });
   const mutedRef = useRef(muted);
+  const themeRef = useRef(theme ?? getTheme("dusk"));
+  const seedRef = useRef(seed);
   const [hintVisible, setHintVisible] = useState(true);
   const [countdown, setCountdown] = useState<3 | 2 | 1 | null>(null);
   const [countAt, setCountAt] = useState<{ x: number; y: number } | null>(null);
@@ -147,7 +169,15 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
 
     const paint = (hits: ReturnType<typeof findIntersections>, bloom: number) => {
       if (!graph) return;
-      renderer.draw(ctx, { graph, hits, time, bloom, width, height });
+      renderer.draw(ctx, {
+        graph,
+        hits,
+        time,
+        bloom,
+        width,
+        height,
+        theme: themeRef.current,
+      });
     };
 
     const nodesSettled = (current: Graph) =>
@@ -155,7 +185,12 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
 
     const mountLevel = (nextLevel: number, intro: boolean) => {
       levelNum = nextLevel;
-      const next = createLevel(nextLevel, width, height, readChrome());
+      const chrome = readChrome();
+      const lockedSeed = seedRef.current;
+      const next =
+        lockedSeed !== undefined
+          ? createLevelWithSeed(nextLevel, lockedSeed, width, height, chrome)
+          : createLevel(nextLevel, width, height, chrome);
       if (intro) {
         const pull = 0.62;
         for (const node of next.nodes) {
@@ -252,7 +287,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
           else if (introUntil > now) bloom = Math.max(0, (introUntil - now) / INTRO_MS) * 0.45;
           paint(hits, bloom);
 
-          if (celebrating && now - celebrateStart >= VICTORY_MS) {
+          if (celebrating && now - celebrateStart >= VICTORY_MS && !callbacks.current.race) {
             mountLevel(levelNum + 1, true);
           }
         } else {
@@ -367,19 +402,27 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
   }, [startLevel]);
 
   useEffect(() => {
-    callbacks.current = { haptics, onCleared, onAdvance };
+    callbacks.current = { haptics, onCleared, onAdvance, race };
     mutedRef.current = muted;
+    themeRef.current = theme ?? getTheme("dusk");
+    seedRef.current = seed;
     synthRef.current?.setMuted(muted);
-  }, [haptics, muted, onCleared, onAdvance]);
+  }, [haptics, muted, onCleared, onAdvance, race, theme, seed]);
 
   const calm = crossings === 0;
+  const activeTheme = theme ?? getTheme("dusk");
+  const levelLabel =
+    level > CAMPAIGN_LEVELS ? `∞ ${level - CAMPAIGN_LEVELS}` : String(level);
 
   return (
-    <div className="game-shell fixed inset-0 flex items-center justify-center overflow-hidden bg-[#09090b] text-[#e0f2fe]">
-      <div
-        ref={frameRef}
-        className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden"
-      >
+    <div
+      className="game-shell fixed inset-0 flex items-center justify-center overflow-hidden text-[#e0f2fe]"
+      style={{ background: activeTheme.ink }}
+    >
+      <div className="play-bleed">
+        <ThemeBackdrop theme={activeTheme} />
+      </div>
+      <div ref={frameRef} className="play-column z-10">
         <canvas
           ref={canvasRef}
           className="absolute inset-0 block h-full w-full touch-none"
@@ -404,7 +447,7 @@ export function GameBoard({ level: startLevel, muted, haptics, onMenu, onMuted, 
               Tangle Duel
             </p>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              <HudStat label="Poziom" value={level} />
+              <HudStat label="Poziom" value={levelLabel} />
               <HudStat
                 label="Przecięcia"
                 value={crossings === null ? "—" : crossings}

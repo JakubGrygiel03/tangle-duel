@@ -1,12 +1,28 @@
 # Tangle Duel
 
-Minimalistyczna łamigłówka dotykowa. Rozplątujesz świetliste struny, przeciągając kryształowe węzły, aż żaden odcinek się nie przecina. Czyste ułożenie rozbłyska i po 1,5 s wciąga kolejny układ.
+Minimalistyczna łamigłówka dotykowa. Rozplątujesz świetliste struny, przeciągając kryształowe węzły, aż żaden odcinek się nie przecina. Czyste ułożenie odlicza 3–2–1 i po zaliczeniu wciąga kolejny układ.
 
-Poziomy 1–3 to prosta konstelacja (5–6 węzłów). Poziomy 4–7 zagęszczają sieć (7–9). Poziomy 8–12 składają złożone figury (10–12). Od poziomu 13 plansza ma 13–15 węzłów i więcej przecięć na starcie. Kryształy zostają wewnątrz okręgu. Górny pasek pokazuje numer poziomu, bieżące przecięcia i minimalną liczbę przeciągnięć, po których ten układ da się rozplątać.
+## Kampania i nieskończoność
 
-Start otwiera samouczek, potem menu. Stamtąd wchodzisz w grę, planszę poziomów 1–15 i ustawienia (dźwięk, wibracje, powtórka samouczka, reset postępu). Z planszy wracasz do menu przyciskiem w lewym dolnym rogu.
+Poziomy **1–60** to kampania w sześciu rozdziałach — trudność rośnie od prostych konstelacji do gęstych sieci przy limicie węzłów. Po zaliczeniu poziomu 60 odblokowuje się tryb **Nieskończone** (poziomy 61+), generowany proceduralnie bez końca.
 
-Gra jest pionowa (wysokość `100dvh`), rysowana na HTML5 Canvas i nie używa silnika gier ani próbek audio. Dźwięk harfy powstaje w Web Audio API po pierwszym dotknięciu.
+## Sklep i kryształy
+
+Za zaliczenie poziomu dostajesz **kryształy** (3–8). W sklepie możesz:
+
+- obejrzeć (na razie symulowaną) reklamę za dodatkową paczkę kryształów,
+- wcześniej odblokować motyw za kryształy,
+- zobaczyć placeholdery IAP: usuń reklamy, paczki, wsparcie twórcy.
+
+Prawdziwe AdMob / płatności wejdą później — ekonomia i UI są już pod to przygotowane.
+
+## Motywy
+
+Tła, kolory strun i kryształów odblokowujesz postępem albo w sklepie. Wybór: menu → Sklep.
+
+## Pojedynek
+
+Dwóch graczy na dwóch telefonach: host tworzy kod, gość dołącza. Obaj dostają ten sam układ — kto pierwszy utrzyma czyste struny przez 3 s, wygrywa. Połączenie przez PeerJS (bez własnego serwera gry). Wejście: Ustawienia → Pojedynek.
 
 ## Uruchomienie
 
@@ -27,12 +43,13 @@ npm start
 Projekt jest zwykłą aplikacją Next.js i nie wymaga zmiennych środowiskowych.
 
 1. W [Vercel](https://vercel.com/new) wybierz import repozytorium `tangle-duel`.
-2. Framework Preset: Next.js. Build command: `npm run build`. Output zostaje domyślny.
-3. Deploy. Podgląd pojawi się pod adresem nadanym przez Vercel.
+2. Framework Preset: Next.js. Build command: `npm run build`.
+3. Deploy.
 
 ## Sterowanie
 
-- Przeciągnij kryształ palcem. Cel ma co najmniej 44 px, niezależnie od wielkości punktu.
-- Bursztynowa struna i iskra oznaczają przecięcie.
-- Biała, lodowa struna jest wolna.
-- Gdy przecięć nie zostanie, plansza rozbłyska i po 1,5 s węzły następnego poziomu wpływają na swoje miejsca.
+- Przeciągnij kryształ palcem. Cel ma co najmniej 44 px.
+- Bursztynowa (lub motywowa) struna i iskra oznaczają przecięcie.
+- Jasna struna jest wolna.
+- Na tablecie tło wypełnia cały ekran; plansza siedzi w szerszej kolumnie portretowej.
+- W menu: lewo wycisza dźwięk, prawo otwiera ustawienia.

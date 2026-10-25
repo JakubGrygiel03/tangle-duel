@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { HarpSynth } from "@/lib/audio/synth";
 import {
   computeArena,
+  isDegenerate,
   placeDragTarget,
   stepNodes,
   type Arena,
@@ -14,8 +15,12 @@ import {
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
+import { getTheme, type VisualTheme } from "@/lib/engine/themes";
+import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 
 const GUIDE = 3;
+/** Jak w normalnej rozgrywce: czysty układ musi tyle wytrzymać. */
+const HOLD_MS = 3000;
 
 const UNITS: ReadonlyArray<readonly [number, number]> = [
   [0, -0.7],
@@ -70,15 +75,23 @@ function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, radius
   ctx.closePath();
 }
 
+function digitFor(elapsed: number): 3 | 2 | 1 {
+  if (elapsed < 1000) return 3;
+  if (elapsed < 2000) return 2;
+  return 1;
+}
+
 export function TutorialBoard({
   muted,
   haptics,
+  theme,
   firstVisit,
   onSkip,
   onFinish,
 }: {
   muted: boolean;
   haptics: boolean;
+  theme?: VisualTheme;
   firstVisit: boolean;
   onSkip: () => void;
   onFinish: () => void;
@@ -88,15 +101,20 @@ export function TutorialBoard({
   const headerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const synthRef = useRef<HarpSynth | null>(null);
+  const themeRef = useRef(theme ?? getTheme("dusk"));
   const [solved, setSolved] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [crossed, setCrossed] = useState(true);
+  const [countdown, setCountdown] = useState<3 | 2 | 1 | null>(null);
+  const [countAt, setCountAt] = useState<{ x: number; y: number } | null>(null);
   const flags = useRef({ muted, haptics });
+  const activeTheme = theme ?? getTheme("dusk");
 
   useEffect(() => {
     flags.current = { muted, haptics };
+    themeRef.current = theme ?? getTheme("dusk");
     synthRef.current?.setMuted(muted);
-  }, [muted, haptics]);
+  }, [muted, haptics, theme]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -120,11 +138,44 @@ export function TutorialBoard({
     let holding = false;
     let done = false;
     let celebrate = 0;
+    let holdStart: number | null = null;
+    let shownDigit: 3 | 2 | 1 | null = null;
+    let spotKey = "";
     let publishedCross = true;
     let time = 0;
     let last = performance.now();
     let running = true;
     let raf = 0;
+
+    const publishCountdown = (digit: 3 | 2 | 1 | null) => {
+      if (digit === shownDigit) return;
+      shownDigit = digit;
+      setCountdown(digit);
+      if (digit === null) return;
+      try {
+        synth.countTick(digit);
+      } catch {
+        // Cisza nie zatrzymuje odliczania.
+      }
+    };
+
+    const publishCountSpot = () => {
+      const rect = frame.getBoundingClientRect();
+      const header = headerRef.current?.getBoundingClientRect();
+      const headerBottom = header ? header.bottom - rect.top : Math.min(96, rect.height * 0.12);
+      const ringTop = graph.arena.cy - graph.arena.radius;
+      const gapMid = headerBottom + Math.max(0, ringTop - headerBottom) / 2;
+      const aboveRing = ringTop - 54;
+      const y = Math.min(gapMid, aboveRing);
+      const x = graph.arena.cx;
+      const key = `${Math.round(x)}:${Math.round(y)}`;
+      if (key === spotKey) return;
+      spotKey = key;
+      setCountAt({ x, y });
+    };
+
+    const nodesSettled = () =>
+      graph.nodes.every((node) => Math.hypot(node.tx - node.x, node.ty - node.y) < 0.8);
 
     const readChrome = (): ArenaChrome | undefined => {
       const header = headerRef.current;
@@ -165,6 +216,7 @@ export function TutorialBoard({
         canvas.height = bufferH;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      publishCountSpot();
     };
 
     const localPoint = (event: PointerEvent): Point => {
@@ -222,24 +274,50 @@ export function TutorialBoard({
       time += dt;
       stepNodes(graph.nodes, dt, holding ? GUIDE : null);
       const hits = findIntersections(graph.nodes, graph.edges);
-      const clear = hits.length === 0;
-      if (clear && !done) {
-        done = true;
-        celebrate = now;
-        publishedCross = false;
-        setSolved(true);
-        setCrossed(false);
-        try {
-          synth.victoryChord();
-        } catch {
-          // Brak dźwięku nie zatrzymuje lekcji.
+      const clear = hits.length === 0 && !isDegenerate(graph.nodes);
+
+      if (!done) {
+        if (!clear) {
+          holdStart = null;
+          publishCountdown(null);
+        } else {
+          if (holdStart === null) holdStart = now;
+          const elapsed = now - holdStart;
+          if (elapsed >= HOLD_MS && nodesSettled()) {
+            done = true;
+            celebrate = now;
+            holdStart = null;
+            publishCountdown(null);
+            publishedCross = false;
+            setSolved(true);
+            setCrossed(false);
+            try {
+              synth.victoryChord();
+            } catch {
+              // Brak dźwięku nie zatrzymuje lekcji.
+            }
+          } else {
+            publishCountSpot();
+            publishCountdown(digitFor(elapsed));
+          }
         }
-      } else if (!done && (hits.length > 0) !== publishedCross) {
-        publishedCross = hits.length > 0;
-        setCrossed(publishedCross);
+
+        if ((hits.length > 0) !== publishedCross) {
+          publishedCross = hits.length > 0;
+          setCrossed(publishedCross);
+        }
       }
+
       const bloom = done ? Math.max(0, 1 - (now - celebrate) / 1400) : 0;
-      renderer.draw(ctx, { graph, hits, time, bloom, width, height });
+      renderer.draw(ctx, {
+        graph,
+        hits,
+        time,
+        bloom,
+        width,
+        height,
+        theme: themeRef.current,
+      });
       paintHint(graph.nodes[GUIDE], bloom);
       raf = requestAnimationFrame(tick);
     };
@@ -305,15 +383,23 @@ export function TutorialBoard({
 
   const line = solved
     ? "Tak. Nic się nie krzyżuje."
-    : dragging
-      ? "Puść przy jasnym punkcie."
-      : crossed
-        ? "Złap kryształ w kółku i przesuń do jasnego punktu."
-        : "Puść, gdy nić zrobi się biała.";
+    : countdown !== null
+      ? "Trzymaj układ bez przecięć."
+      : dragging
+        ? "Puść przy jasnym punkcie."
+        : crossed
+          ? "Złap kryształ w kółku i przesuń do jasnego punktu."
+          : "Puść, gdy nić zrobi się biała.";
 
   return (
-    <div className="game-shell fixed inset-0 flex items-center justify-center bg-[#09090b] text-[#e0f2fe]">
-      <div ref={frameRef} className="relative h-[100dvh] w-full max-w-[calc(100dvh*9/16)] overflow-hidden">
+    <div
+      className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
+      style={{ background: activeTheme.ink }}
+    >
+      <div className="play-bleed">
+        <ThemeBackdrop theme={activeTheme} />
+      </div>
+      <div ref={frameRef} className="play-column z-10">
         <canvas
           ref={canvasRef}
           className="absolute inset-0 h-full w-full touch-none"
@@ -336,6 +422,20 @@ export function TutorialBoard({
               Pomiń
             </button>
           </div>
+
+          {countdown !== null && !solved && countAt && (
+            <p
+              key={countdown}
+              role="status"
+              aria-live="polite"
+              aria-label={String(countdown)}
+              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
+              style={{ left: countAt.x, top: countAt.y }}
+            >
+              {countdown}
+            </p>
+          )}
+
           <div ref={cardRef} className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="rounded-[1.4rem] border border-[#e0f2fe]/15 bg-[#09090b]/72 px-5 py-4 backdrop-blur-md">
               <p className="text-lg font-light leading-snug">{line}</p>

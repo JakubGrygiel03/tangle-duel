@@ -4,8 +4,12 @@ import { useEffect, useRef } from "react";
 import { computeArena, type Arena, type ArenaChrome, type Graph, type GraphEdge, type GraphNode } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
+import { getTheme, type VisualTheme } from "@/lib/engine/themes";
 
-const HOME: ReadonlyArray<readonly [number, number]> = [
+type Unit = readonly [number, number];
+type Pose = ReadonlyArray<Unit>;
+
+const CLEAR: Pose = [
   [0, -0.78],
   [0.74, -0.24],
   [0.46, 0.64],
@@ -14,11 +18,35 @@ const HOME: ReadonlyArray<readonly [number, number]> = [
   [0, 0.02],
 ];
 
-const TANGLED: ReadonlyArray<readonly [number, number]> = [
+/** Splątanie: węzły 1 i 3 zamienione miejscami. */
+const TANGLE: Pose = [
   [0, -0.78],
   [-0.46, 0.64],
   [0.46, 0.64],
   [0.74, -0.24],
+  [-0.74, -0.24],
+  [0, 0.02],
+];
+
+/** Po drodze jeden kryształ stoi z boku — jak przy przeciągnięciu jednym palcem. */
+const ASIDE: Pose = [
+  [0, -0.78],
+  [0.18, -0.32],
+  [0.46, 0.64],
+  [0.74, -0.24],
+  [-0.74, -0.24],
+  [0, 0.02],
+];
+
+/**
+ * Połowa 3 już w domu, 1 jeszcze z boku.
+ * Kolejność ruchów: jeden węzeł naraz.
+ */
+const HALF: Pose = [
+  [0, -0.78],
+  [0.18, -0.32],
+  [0.46, 0.64],
+  [-0.46, 0.64],
   [-0.74, -0.24],
   [0, 0.02],
 ];
@@ -33,18 +61,42 @@ const EDGES: GraphEdge[] = [
   { a: 5, b: 2 },
 ];
 
+/** Odcinki pętli: jeden ruch = jeden węzeł. */
+const SEGMENTS: ReadonlyArray<{ from: Pose; to: Pose; hold: number; move: number }> = [
+  { from: TANGLE, to: TANGLE, hold: 1.15, move: 0 },
+  { from: TANGLE, to: ASIDE, hold: 0.28, move: 0.95 },
+  { from: ASIDE, to: HALF, hold: 0.28, move: 0.95 },
+  { from: HALF, to: CLEAR, hold: 0.28, move: 0.95 },
+  { from: CLEAR, to: CLEAR, hold: 1.35, move: 0 },
+  { from: CLEAR, to: HALF, hold: 0.28, move: 0.95 },
+  { from: HALF, to: ASIDE, hold: 0.28, move: 0.95 },
+  { from: ASIDE, to: TANGLE, hold: 0.28, move: 0.95 },
+];
+
+const CYCLE = SEGMENTS.reduce((sum, part) => sum + part.hold + part.move, 0);
+
 function smooth(value: number): number {
   const t = Math.min(1, Math.max(0, value));
   return t * t * (3 - 2 * t);
 }
 
-/** 1 = splątane, 0 = rozplątane. Krótka pauza na czystym układzie. */
-function tangleAmount(time: number, reduced: boolean): number {
-  if (reduced) return 1;
-  const phase = (time % 9) / 9;
-  if (phase < 0.4) return 1 - smooth(phase / 0.4);
-  if (phase < 0.58) return 0;
-  return smooth((phase - 0.58) / 0.42);
+function poseAt(time: number, reduced: boolean): Pose {
+  if (reduced) return TANGLE;
+  let cursor = ((time % CYCLE) + CYCLE) % CYCLE;
+  for (const part of SEGMENTS) {
+    if (cursor < part.hold) return part.from;
+    cursor -= part.hold;
+    if (part.move <= 0) continue;
+    if (cursor < part.move) {
+      const t = smooth(cursor / part.move);
+      return part.from.map((start, id) => {
+        const end = part.to[id] ?? start;
+        return [start[0] + (end[0] - start[0]) * t, start[1] + (end[1] - start[1]) * t] as const;
+      });
+    }
+    cursor -= part.move;
+  }
+  return TANGLE;
 }
 
 function arenaFor(
@@ -63,25 +115,35 @@ function arenaFor(
   return computeArena(width, height, { top, bottom });
 }
 
-function buildGraph(arena: Arena, amount: number): Graph {
-  const nodes: GraphNode[] = HOME.map((home, id) => {
-    const tangled = TANGLED[id] ?? home;
-    const ux = home[0] + (tangled[0] - home[0]) * amount;
-    const uy = home[1] + (tangled[1] - home[1]) * amount;
-    const x = arena.cx + ux * arena.radius * 0.8;
-    const y = arena.cy + uy * arena.radius * 0.8;
+function buildGraph(arena: Arena, pose: Pose): Graph {
+  const nodes: GraphNode[] = pose.map((unit, id) => {
+    const x = arena.cx + unit[0] * arena.radius * 0.8;
+    const y = arena.cy + unit[1] * arena.radius * 0.8;
     return { id, x, y, tx: x, ty: y, pluck: 0, grab: 0 };
   });
   return { nodes, edges: EDGES, arena, level: 0, minimumMoves: 0 };
 }
 
-export function LivingSky({ mood, band }: { mood: "menu" | "calm"; band?: ArenaChrome }) {
+export function LivingSky({
+  mood,
+  band,
+  theme,
+}: {
+  mood: "menu" | "calm";
+  band?: ArenaChrome;
+  theme?: VisualTheme;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bandRef = useRef(band);
+  const themeRef = useRef(theme ?? getTheme("dusk"));
 
   useEffect(() => {
     bandRef.current = band;
   }, [band]);
+
+  useEffect(() => {
+    themeRef.current = theme ?? getTheme("dusk");
+  }, [theme]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -119,9 +181,9 @@ export function LivingSky({ mood, band }: { mood: "menu" | "calm"; band?: ArenaC
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       time += dt;
-      const graph = buildGraph(arenaFor(width, height, mood, bandRef.current), tangleAmount(time, reduced));
+      const graph = buildGraph(arenaFor(width, height, mood, bandRef.current), poseAt(time, reduced));
       const hits = findIntersections(graph.nodes, graph.edges);
-      renderer.draw(ctx, { graph, hits, time, bloom: 0, width, height });
+      renderer.draw(ctx, { graph, hits, time, bloom: 0, width, height, theme: themeRef.current });
       raf = requestAnimationFrame(tick);
     };
 
@@ -141,7 +203,7 @@ export function LivingSky({ mood, band }: { mood: "menu" | "calm"; band?: ArenaC
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
     />
   );
 }
