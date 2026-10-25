@@ -222,7 +222,9 @@ export function CouchDuel({
                   : "Wygrywa dół"}
             </p>
             <p className="mt-3 text-[15px] font-light text-[#e0f2fe]/65">
-              Fala wstrząsu poszła na drugą połowę ekranu.
+              {phase.winner === "draw"
+                ? "Prawie równocześnie — pięknie."
+                : "Świetna runda. Gotowi na kolejną?"}
             </p>
             <button
               type="button"

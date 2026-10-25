@@ -15,10 +15,11 @@ import { LivingSky } from "@/components/game/LivingSky";
 import { StudioCard } from "@/components/game/StudioCard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import {
-  defaultSave,
+  isLevelPlayable,
   readSave,
   readServerSave,
   recordClearedLevel,
+  resetProgress,
   subscribeSave,
   updateSave,
   type GameSave,
@@ -87,7 +88,19 @@ export function GameApp() {
     );
     setRushResult(null);
     setDailySeed(undefined);
-    updateSave((current) => ({ ...current, level }));
+    updateSave((current) => {
+      let next = Math.max(1, Math.floor(level));
+      if (
+        (mode === "campaign" || mode === "master" || mode === "echo") &&
+        next <= CAMPAIGN_LEVELS &&
+        !isLevelPlayable(next, current.clearedCampaign)
+      ) {
+        const peak =
+          current.clearedCampaign.length > 0 ? Math.max(...current.clearedCampaign) : 0;
+        next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
+      }
+      return { ...current, level: next };
+    });
     setRun((value) => value + 1);
     setScreen("play");
   };
@@ -459,13 +472,19 @@ export function GameApp() {
                     setConfirmReset(true);
                     return;
                   }
-                  updateSave(() => ({
-                    ...defaultSave(),
+                  resetProgress({
                     muted: save.muted,
                     haptics: save.haptics,
                     tutorialSeen: true,
-                  }));
+                  });
                   setConfirmReset(false);
+                  setPlayMode("campaign");
+                  setBoardMode("classic");
+                  setDailySeed(undefined);
+                  setRushResult(null);
+                  setRun((value) => value + 1);
+                  setUnlockNote("Postęp wyczyszczony · poziom 1");
+                  setScreen("menu");
                 }}
               />
             )}
@@ -795,24 +814,32 @@ function LevelSelect({
       <div className="mt-6 grid min-h-0 flex-1 grid-cols-3 content-start gap-2.5 overflow-y-auto pb-2">
         {Array.from({ length: CAMPAIGN_LEVELS }, (_, index) => index + 1).map((level) => {
           const clearedLevel = cleared.includes(level);
-          const active = level === current;
+          const open = isLevelPlayable(level, cleared);
+          const active = level === current && open;
           const star = level % 5 === 0;
           return (
             <button
               key={level}
               type="button"
-              onClick={() => onPick(level)}
-              className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md active:scale-[0.98] ${
+              disabled={!open}
+              onClick={() => {
+                if (open) onPick(level);
+              }}
+              className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
+                open ? "active:scale-[0.98]" : "opacity-35"
+              } ${
                 active
                   ? "border-[#f97316]/80 bg-[#f97316]/18 text-[#fff7ed] shadow-[0_0_24px_rgba(249,115,22,0.28)]"
-                  : star
-                    ? "border-[#fbbf24]/45 bg-[#fbbf24]/08 text-[#fffbeb]"
-                    : clearedLevel
-                      ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
-                      : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
+                  : !open
+                    ? "border-[#e0f2fe]/08 bg-black/20 text-[#e0f2fe]/50"
+                    : star
+                      ? "border-[#fbbf24]/45 bg-[#fbbf24]/08 text-[#fffbeb]"
+                      : clearedLevel
+                        ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
+                        : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
               }`}
             >
-              {star ? (
+              {star && open ? (
                 <span className="mb-0.5 text-[10px] text-[#fbbf24]">✦</span>
               ) : clearedLevel ? (
                 <Diamond className="mb-0.5 text-[#e0f2fe]" />
@@ -1074,7 +1101,11 @@ function SettingsScreen({
         <SettingRow label="Nauka" detail="Pokaż jeszcze raz" onClick={onTutorial} />
         <SettingRow
           label={confirmReset ? "Na pewno wyczyścić?" : "Resetuj postęp"}
-          detail={confirmReset ? "Stuknij jeszcze raz" : "Poziomy i sklep wracają na start"}
+          detail={
+            confirmReset
+              ? "Stuknij jeszcze raz — start od poziomu 1"
+              : "Poziomy, kryształy, album i sklep od zera"
+          }
           danger
           onClick={onReset}
         />

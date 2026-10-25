@@ -92,10 +92,13 @@ export function DuelLobby({
     }
     const won =
       (message.winner === "host" && youHost) || (message.winner === "guest" && !youHost);
+    // Zawsze celebrujemy zwycięzcę — bez słowa „przegrana”.
     setPhase({
       kind: "result",
-      text: won ? "Wygrana" : "Porażka",
-      detail: won ? "Szybciej rozplątałeś układ." : "Rywal był szybszy.",
+      text: won ? "Wygrywasz" : "Wygrywa rywal",
+      detail: won
+        ? "Czyste struny pierwsze — brawo."
+        : "Świetna runda. Następna może być Twoja.",
     });
   };
 

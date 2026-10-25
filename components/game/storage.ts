@@ -214,6 +214,39 @@ export function updateSave(recipe: (current: GameSave) => GameSave): void {
   emit();
 }
 
+/** Pełny reset postępu — czyści localStorage i wraca do poziomu 1. */
+export function resetProgress(
+  keep: Pick<GameSave, "muted" | "haptics"> & { tutorialSeen?: boolean } = {
+    muted: false,
+    haptics: true,
+  },
+): GameSave {
+  const next: GameSave = {
+    ...defaultSave(),
+    muted: keep.muted,
+    haptics: keep.haptics,
+    tutorialSeen: keep.tutorialSeen ?? true,
+  };
+  memory = next;
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch {
+    // Ignoruj — i tak nadpisujemy poniżej.
+  }
+  writeSave(next);
+  emit();
+  return next;
+}
+
+/** Poziom dostępny w kampanii: 1 albo bezpośrednio po najwyższym zaliczonym. */
+export function isLevelPlayable(level: number, clearedCampaign: readonly number[]): boolean {
+  if (level < 1 || level > CAMPAIGN_LEVELS) return false;
+  if (level === 1) return true;
+  if (clearedCampaign.includes(level)) return true;
+  const peak = clearedCampaign.length > 0 ? Math.max(...clearedCampaign) : 0;
+  return level === peak + 1;
+}
+
 export function subscribeSave(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
