@@ -3,11 +3,14 @@ import {
   CRYSTAL_SHAPES,
   crystalShapeById,
   crystalsForLevel,
+  isTrailId,
   PERFECT_MOVE_BONUS,
   SOUND_PACKS,
   soundPackById,
+  TRAIL_STYLES,
   type CrystalShapeId,
   type SoundPackId,
+  type TrailId,
 } from "@/lib/engine/economy";
 import {
   CONSTELLATIONS,
@@ -69,9 +72,14 @@ export type GameSave = {
   soundPack: SoundPackId;
   /** Kupione pakiety (oprócz harfy). */
   purchasedSounds: SoundPackId[];
-  /** Ślad światła za palcem. */
-  trailOwned: boolean;
-  trailEnabled: boolean;
+  /** Aktywny styl śladu (`null` = wyłączony). */
+  activeTrail: TrailId | null;
+  /** Kupione style śladu. */
+  purchasedTrails: TrailId[];
+  /** @deprecated Migracja ze starego zapisu — nie używać w UI. */
+  trailOwned?: boolean;
+  /** @deprecated Migracja ze starego zapisu — nie używać w UI. */
+  trailEnabled?: boolean;
   /** Kształt węzłów na planszy. */
   crystalShape: CrystalShapeId;
   purchasedShapes: CrystalShapeId[];
@@ -139,8 +147,8 @@ export const defaultSave = (): GameSave => ({
   duelStarted: 0,
   soundPack: "harp",
   purchasedSounds: [],
-  trailOwned: false,
-  trailEnabled: false,
+  activeTrail: null,
+  purchasedTrails: [],
   crystalShape: "diamond",
   purchasedShapes: [],
   premiumUnlocked: false,
@@ -160,14 +168,17 @@ export function withPremiumUnlock(current: GameSave): GameSave {
   const purchasedSounds = [
     ...new Set([...current.purchasedSounds, ...SOUND_PACKS.map((item) => item.id)]),
   ];
+  const purchasedTrails = [
+    ...new Set([...current.purchasedTrails, ...TRAIL_STYLES.map((item) => item.id)]),
+  ];
   return {
     ...current,
     premiumUnlocked: true,
     purchasedThemes,
     purchasedShapes,
     purchasedSounds,
-    trailOwned: true,
-    trailEnabled: current.trailOwned ? current.trailEnabled : true,
+    purchasedTrails,
+    activeTrail: current.activeTrail ?? "dust",
   };
 }
 
@@ -202,28 +213,21 @@ function sanitizeConstellations(ids: unknown): ConstellationId[] {
 }
 
 /**
- * Album z postępu: konstelacja pojawia się po zaliczeniu jej poziomu
- * (albo gdy gracz już jest dalej — naprawia stare save'y bez wpisu w albumie).
+ * Album wyłącznie z realnie zaliczonych poziomów-figur.
+ * Nie przyznaje za sam numer `level` / endless — to wcześniej odblokowywało
+ * Diament/Łódź/Kwiat zanim gracz doszedł do poz. 6.
  */
 export function mergeAlbumFromCleared(
   clearedCampaign: readonly number[],
-  owned: readonly ConstellationId[],
-  progressLevel = 0,
-  endlessBest = 0,
+  _owned: readonly ConstellationId[] = [],
+  _progressLevel = 0,
+  _endlessBest = 0,
 ): ConstellationId[] {
-  const next = new Set(owned);
-  const peakCleared = clearedCampaign.length > 0 ? Math.max(...clearedCampaign) : 0;
-  const reached = Math.max(
-    peakCleared,
-    Math.max(0, Math.floor(progressLevel) - 1),
-    endlessBest > 0 ? CAMPAIGN_LEVELS : 0,
-  );
+  const earned = new Set<ConstellationId>();
   for (const figure of CONSTELLATIONS) {
-    if (clearedCampaign.includes(figure.level) || reached >= figure.level) {
-      next.add(figure.id);
-    }
+    if (clearedCampaign.includes(figure.level)) earned.add(figure.id);
   }
-  return CONSTELLATIONS.map((item) => item.id).filter((id) => next.has(id));
+  return CONSTELLATIONS.map((item) => item.id).filter((id) => earned.has(id));
 }
 
 function sanitizeQuestClaims(ids: unknown): string[] {
@@ -255,6 +259,28 @@ function sanitizeShapes(ids: unknown): CrystalShapeId[] {
     }
   }
   return [...unique];
+}
+
+function sanitizeTrails(ids: unknown): TrailId[] {
+  if (!Array.isArray(ids)) return [];
+  const unique = new Set<TrailId>();
+  for (const id of ids) {
+    if (typeof id === "string" && isTrailId(id)) unique.add(id);
+  }
+  return [...unique];
+}
+
+function resolveActiveTrail(
+  raw: unknown,
+  purchased: readonly TrailId[],
+  legacyOwned: boolean,
+  legacyEnabled: boolean,
+): TrailId | null {
+  if (raw === null || raw === "off" || raw === "none") return null;
+  if (typeof raw === "string" && isTrailId(raw) && purchased.includes(raw)) return raw;
+  if (legacyOwned && legacyEnabled && purchased.includes("dust")) return "dust";
+  if (legacyOwned && legacyEnabled) return purchased[0] ?? null;
+  return null;
 }
 
 function sanitizeLevel(value: unknown, clearedCampaign: number[], endlessBest: number): number {
@@ -316,8 +342,18 @@ export function loadSave(): GameSave {
     ).id;
     const ownedSound =
       soundPack === "harp" || purchasedSounds.includes(soundPack) ? soundPack : "harp";
-    const trailOwned = parsed.trailOwned === true;
-    const trailEnabled = trailOwned && parsed.trailEnabled !== false;
+    const legacyTrailOwned = parsed.trailOwned === true;
+    const legacyTrailEnabled = legacyTrailOwned && parsed.trailEnabled !== false;
+    const purchasedTrails = sanitizeTrails(parsed.purchasedTrails);
+    if (legacyTrailOwned && !purchasedTrails.includes("dust")) {
+      purchasedTrails.push("dust");
+    }
+    const activeTrail = resolveActiveTrail(
+      parsed.activeTrail,
+      purchasedTrails,
+      legacyTrailOwned,
+      legacyTrailEnabled,
+    );
     const crystalShape = crystalShapeById(
       typeof parsed.crystalShape === "string" ? parsed.crystalShape : "diamond",
     ).id;
@@ -352,8 +388,8 @@ export function loadSave(): GameSave {
       duelStarted: sanitizeNonNegInt(parsed.duelStarted, 9999),
       soundPack: ownedSound,
       purchasedSounds,
-      trailOwned,
-      trailEnabled,
+      activeTrail,
+      purchasedTrails,
       crystalShape: ownedShape,
       purchasedShapes,
       premiumUnlocked: parsed.premiumUnlocked === true,
@@ -398,10 +434,22 @@ export function readServerSave(): GameSave {
   return serverSave;
 }
 
+let persistTimer: number | null = null;
+
+/** Zapis na dysk poza ścieżką kliknięcia — UI reaguje od razu. */
+function schedulePersist(): void {
+  if (typeof window === "undefined") return;
+  if (persistTimer !== null) return;
+  persistTimer = window.setTimeout(() => {
+    persistTimer = null;
+    writeSave(memory);
+  }, 0);
+}
+
 export function updateSave(recipe: (current: GameSave) => GameSave): void {
   memory = recipe(memory);
-  writeSave(memory);
   emit();
+  schedulePersist();
 }
 
 /**

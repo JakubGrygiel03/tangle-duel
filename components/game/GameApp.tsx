@@ -58,7 +58,7 @@ import {
   CRYSTAL_SHAPES,
   PERFECT_MOVE_BONUS,
   SOUND_PACKS,
-  TRAIL_PRICE,
+  TRAIL_STYLES,
   crystalsForEchoClear,
   crystalsForMasterClear,
   crystalsForRushRun,
@@ -66,6 +66,7 @@ import {
   type CrystalPackId,
   type CrystalShapeId,
   type SoundPackId,
+  type TrailId,
 } from "@/lib/engine/economy";
 import {
   CAMPAIGN_LEVELS,
@@ -78,7 +79,6 @@ import {
 import {
   activeQuest,
   isQuestPathComplete,
-  upcomingQuests,
   type QuestDeepLink,
   type QuestProgressInput,
   type QuestView,
@@ -129,8 +129,9 @@ export function GameApp() {
   const daily = getDailyChallenge();
   const [screen, setScreen] = useState<Screen | "auto">("auto");
   const [studio, setStudio] = useState<"show" | "leave" | "done">("show");
-  const [confirmReset, setConfirmReset] = useState(false);
   const [run, setRun] = useState(0);
+  /** Świeża sól na każdy start meczu — Błyskawica/Mistrz/Echo nie powtarzają układów. */
+  const [playSalt, setPlaySalt] = useState(0);
   const [playMode, setPlayMode] = useState<PlayMode>("campaign");
   const [boardMode, setBoardMode] = useState<BoardMode>("classic");
   const [dailySeed, setDailySeed] = useState<number | undefined>(undefined);
@@ -145,7 +146,6 @@ export function GameApp() {
   const dailyStreak = visibleDailyStreak(save.dailyClaimedOn, save.dailyStreak, daily.day);
 
   const openScreen = useCallback((next: Screen) => {
-    setConfirmReset(false);
     setScreen((current) => {
       const from = current === "auto" ? (readSave().tutorialSeen ? "menu" : "tutorial") : current;
       if (typeof window !== "undefined" && next !== from) {
@@ -155,14 +155,27 @@ export function GameApp() {
     });
   }, []);
 
+  const playModeRef = useRef(playMode);
+  playModeRef.current = playMode;
+
+  /**
+   * Wstecz w UI — synchronicznie, bez history.back().
+   * Z play (Błyskawica/Mistrz/Echo) wraca do Trybów.
+   */
   const goBack = useCallback(() => {
-    if (typeof window !== "undefined" && window.history.state && "tangle" in window.history.state) {
-      window.history.back();
-      return;
-    }
     setRushResult(null);
-    setConfirmReset(false);
-    setScreen("menu");
+    const mode = playModeRef.current;
+    setScreen((current) => {
+      const fromPlay = current === "play" || current === "auto";
+      const dest: Screen =
+        fromPlay && (mode === "rush" || mode === "master" || mode === "echo")
+          ? "modes"
+          : "menu";
+      if (typeof window !== "undefined") {
+        window.history.replaceState({ tangle: dest }, "");
+      }
+      return dest;
+    });
   }, []);
 
   // Uzupełnij album z postępu (stare save'y / clear bez wpisu).
@@ -191,8 +204,8 @@ export function GameApp() {
     const onPop = (event: PopStateEvent) => {
       const target = (event.state?.tangle as Screen | undefined) ?? "menu";
       setRushResult(null);
-      setConfirmReset(false);
-      setScreen(target);
+      // Nie wracaj w środek meczu z gestu systemowego — tylko lobby / menu.
+      setScreen(target === "play" ? "menu" : target);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -219,6 +232,13 @@ export function GameApp() {
     return () => window.clearTimeout(timer);
   }, [studio, save.dailyReminderAsked, visible, t]);
 
+  const freshPlaySalt = () =>
+    (Math.floor(Math.random() * 0x7fffffff) ^
+      (Date.now() & 0xffffffff) ^
+      (performance.now() * 1000) ^
+      ((run + 1) * 0x9e3779b9)) >>>
+    0;
+
   const play = (level: number, mode: PlayMode = "campaign") => {
     setPlayMode(mode);
     setBoardMode(
@@ -226,7 +246,9 @@ export function GameApp() {
     );
     setRushResult(null);
     setDailySeed(undefined);
+    setPlaySalt(freshPlaySalt());
     if (mode === "campaign") {
+      // Pamięć od razu, localStorage w schedulePersist — bez blokady kliknięcia.
       updateSave((current) => {
         let next = Math.max(1, Math.floor(level));
         if (next <= CAMPAIGN_LEVELS && !isLevelPlayable(next, current.clearedCampaign)) {
@@ -259,6 +281,7 @@ export function GameApp() {
     setBoardMode("classic");
     setRushResult(null);
     setDailySeed(challenge.seed);
+    setPlaySalt(challenge.seed);
     updateSave((current) => ({ ...current, level: challenge.level }));
     setRun((value) => value + 1);
     openScreen("play");
@@ -267,11 +290,13 @@ export function GameApp() {
   const openTutorial = () => openScreen("howto");
   const openGesturePractice = () => openScreen("tutorial");
 
-  const openDuel = () => {
+  const openDuel = () => openScreen("duel");
+
+  /** Misja q6: utwórz pokój (zaproszenie) albo kanapa na jednym telefonie. */
+  const markDuelStarted = () => {
     updateSave((current) =>
       current.duelStarted > 0 ? current : { ...current, duelStarted: 1 },
     );
-    openScreen("duel");
   };
 
   const claimQuest = (questId: string) => {
@@ -282,13 +307,16 @@ export function GameApp() {
         clearedCampaign: current.clearedCampaign,
         dailyClaimedOn: current.dailyClaimedOn,
         rushClearsTotal: current.rushClearsTotal,
+        rushBest: current.rushBest,
         constellations: current.constellations,
         duelStarted: current.duelStarted,
+        masterBest: current.masterBest,
+        echoBest: current.echoBest,
         questClaims: current.questClaims,
       };
       const view = activeQuest(input);
       if (!view || view.quest.id !== questId || !view.ready) return current;
-      note = t("shop_ad_ready", { n: view.quest.reward });
+      note = t("quest_reward", { n: view.quest.reward });
       return {
         ...current,
         crystals: current.crystals + view.quest.reward,
@@ -544,7 +572,7 @@ export function GameApp() {
     } else {
       stage = (
         <GameBoard
-          key={run}
+          key={`${run}-${playSalt}`}
           level={
             playMode === "rush"
               ? 1
@@ -559,9 +587,10 @@ export function GameApp() {
           theme={theme}
           soundPack={save.soundPack}
           crystalShape={save.crystalShape}
-          trail={save.trailOwned && save.trailEnabled}
+          trail={save.activeTrail}
           mode={boardMode}
           seed={playMode === "daily" ? dailySeed : undefined}
+          sessionSalt={playSalt}
           startRound={playMode === "echo" ? save.echoRound : 1}
           race={playMode === "daily"}
           t={t}
@@ -603,10 +632,11 @@ export function GameApp() {
         theme={theme}
         soundPack={save.soundPack}
         crystalShape={save.crystalShape}
-        trail={save.trailOwned && save.trailEnabled}
+        trail={save.activeTrail}
         t={t}
         onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
         onBack={goBack}
+        onDuelEngaged={markDuelStarted}
       />
     );
   } else if (visible === "tutorial") {
@@ -665,25 +695,25 @@ export function GameApp() {
                   clearedCampaign: save.clearedCampaign,
                   dailyClaimedOn: save.dailyClaimedOn,
                   rushClearsTotal: save.rushClearsTotal,
+                  rushBest: save.rushBest,
                   constellations: save.constellations,
                   duelStarted: save.duelStarted,
+                  masterBest: save.masterBest,
+                  echoBest: save.echoBest,
                   questClaims: save.questClaims,
                 }}
                 onPlay={() => play(save.level)}
                 onDaily={playDaily}
                 onDuel={openDuel}
-                onModes={() => setScreen("modes")}
+                onModes={() => openScreen("modes")}
                 onRush={() => play(1, "rush")}
-                onLevels={() => setScreen("levels")}
-                onShop={() => setScreen("shop")}
-                onAlbum={() => setScreen("album")}
+                onLevels={() => openScreen("levels")}
+                onShop={() => openScreen("shop")}
+                onAlbum={() => openScreen("album")}
                 onTutorial={openTutorial}
                 onClaimQuest={claimQuest}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
-                onSettings={() => {
-                  setConfirmReset(false);
-                  setScreen("settings");
-                }}
+                onSettings={() => openScreen("settings")}
               />
             )}
             {visible === "howto" && (
@@ -710,21 +740,7 @@ export function GameApp() {
                 onBack={() => setScreen("menu")}
                 onRush={() => play(1, "rush")}
                 onMaster={() => play(save.masterLevel, "master")}
-                onMasterRestart={() => {
-                  updateSave((current) => ({
-                    ...current,
-                    masterLevel: MASTER_START_DIFFICULTY,
-                  }));
-                  play(MASTER_START_DIFFICULTY, "master");
-                }}
                 onEcho={() => play(ECHO_DIFFICULTY, "echo")}
-                onEchoRestart={() => {
-                  updateSave((current) => ({
-                    ...current,
-                    echoRound: 1,
-                  }));
-                  play(ECHO_DIFFICULTY, "echo");
-                }}
               />
             )}
             {visible === "album" && (
@@ -799,20 +815,21 @@ export function GameApp() {
                   });
                   setUnlockNote(t("sound_unlocked"));
                 }}
-                onBuyTrail={() => {
+                onPickTrail={(id) =>
+                  updateSave((current) => ({ ...current, activeTrail: id }))
+                }
+                onBuyTrail={(id, price) => {
                   updateSave((current) => {
-                    if (current.trailOwned) {
-                      return { ...current, trailEnabled: !current.trailEnabled };
-                    }
-                    if (current.crystals < TRAIL_PRICE) return current;
+                    if (current.crystals < price) return current;
+                    if (current.purchasedTrails.includes(id)) return current;
                     return {
                       ...current,
-                      crystals: current.crystals - TRAIL_PRICE,
-                      trailOwned: true,
-                      trailEnabled: true,
+                      crystals: current.crystals - price,
+                      purchasedTrails: [...current.purchasedTrails, id],
+                      activeTrail: id,
                     };
                   });
-                  setUnlockNote(save.trailOwned ? t("trail_toggled") : t("trail_unlocked"));
+                  setUnlockNote(t("trail_unlocked"));
                 }}
                 onBuyPack={(packId) => {
                   const pack = CRYSTAL_PACKS.find((item) => item.id === packId);
@@ -863,7 +880,6 @@ export function GameApp() {
                 save={save}
                 theme={theme}
                 systemLocale={systemLocale}
-                confirmReset={confirmReset}
                 onBack={() => setScreen("menu")}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
                 onToggleHaptics={() =>
@@ -873,17 +889,12 @@ export function GameApp() {
                 onDuel={openDuel}
                 onTutorial={openTutorial}
                 onReset={() => {
-                  if (!confirmReset) {
-                    setConfirmReset(true);
-                    return;
-                  }
                   resetProgress({
                     muted: save.muted,
                     haptics: save.haptics,
                     tutorialSeen: true,
                     locale: save.locale,
                   });
-                  setConfirmReset(false);
                   setPlayMode("campaign");
                   setBoardMode("classic");
                   setDailySeed(undefined);
@@ -969,7 +980,6 @@ function MainMenu({
       ? t("endless_n", { n: level - CAMPAIGN_LEVELS })
       : t("level_n", { n: level });
   const quest = activeQuest(questInput);
-  const nextQuests = upcomingQuests(questInput, 1);
   const pathDone = isQuestPathComplete(questInput);
 
   const followQuest = (link: QuestDeepLink) => {
@@ -1037,72 +1047,47 @@ function MainMenu({
           </span>
         </button>
 
-        <QuestStrip
-          t={t}
-          theme={theme}
-          quest={quest}
-          next={nextQuests[0] ?? null}
-          pathDone={pathDone}
-          onClaim={onClaimQuest}
-          onFollow={followQuest}
-        />
+        {!pathDone && quest ? (
+          <QuestStrip
+            t={t}
+            theme={theme}
+            quest={quest}
+            onClaim={onClaimQuest}
+            onFollow={followQuest}
+          />
+        ) : null}
 
-        <button
-          type="button"
-          onClick={onModes}
-          className="ui-panel mt-2.5 flex h-[4.15rem] w-full items-center gap-3.5 rounded-[1.25rem] border px-3.5 text-left backdrop-blur-md active:scale-[0.985]"
-        >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-black/30">
+        <div className="mt-2.5 grid grid-cols-3 gap-2">
+          <MenuTile label={t("modes")} onClick={onModes}>
             <EventIcon accent={theme.warm} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[1.1rem] font-medium leading-none">{t("modes")}</span>
-            <span className="ui-muted mt-1.5 block text-[12px]">{t("modes_detail")}</span>
-          </span>
-        </button>
-
-        <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
+          </MenuTile>
+          <MenuTile
+            label={t("daily")}
             onClick={onDaily}
-            className={`flex h-[4.35rem] items-center gap-2.5 rounded-[1.2rem] border px-3 text-left backdrop-blur-md active:scale-[0.98] ${
-              dailyDone ? "ui-panel" : "ui-panel-active"
-            }`}
-            style={
-              dailyDone
-                ? undefined
-                : {
-                    borderColor: `${theme.warm}73`,
-                    background: `${theme.warm}24`,
-                    boxShadow: `0 0 22px ${theme.warm}28`,
-                  }
+            highlight={!dailyDone}
+            accent={theme.warm}
+            badge={
+              dailyStreak > 0 ? (
+                <span
+                  className="flex items-center gap-0.5 text-[11px] tabular-nums"
+                  style={{ color: theme.warm }}
+                  aria-label={t("streak_aria", { n: dailyStreak })}
+                >
+                  <StreakFlame accent={theme.warm} />
+                  {dailyStreak}
+                </span>
+              ) : !dailyDone ? (
+                <span className="text-[11px] tabular-nums" style={{ color: theme.warm }}>
+                  +{dailyReward}
+                </span>
+              ) : null
             }
           >
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-black/25">
-              <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5">
-                <span className="block text-[15px] font-medium leading-none">{t("daily")}</span>
-                {dailyStreak > 0 ? (
-                  <span
-                    className="flex items-center gap-0.5 text-[12px] tabular-nums"
-                    style={{ color: theme.warm }}
-                    aria-label={t("streak_aria", { n: dailyStreak })}
-                  >
-                    <StreakFlame accent={theme.warm} />
-                    {dailyStreak}
-                  </span>
-                ) : null}
-              </span>
-              <span className={`mt-1.5 block text-[11px] ${dailyDone ? "ui-muted" : "opacity-80"}`}>
-                {dailyDone ? t("daily_done") : t("daily_layout", { n: dailyReward })}
-              </span>
-            </span>
-          </button>
-          <FeatureTile label={t("duel")} detail={t("duel_detail")} onClick={onDuel}>
+            <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
+          </MenuTile>
+          <MenuTile label={t("duel")} onClick={onDuel}>
             <DuelIcon accent={theme.warm} />
-          </FeatureTile>
+          </MenuTile>
         </div>
 
         <div className="mt-2.5 grid grid-cols-4 gap-2">
@@ -1128,91 +1113,97 @@ function QuestStrip({
   t,
   theme,
   quest,
-  next,
-  pathDone,
   onClaim,
   onFollow,
 }: {
   t: TranslateFn;
   theme: VisualTheme;
-  quest: QuestView | null;
-  next: QuestView | null;
-  pathDone: boolean;
+  quest: QuestView;
   onClaim: (questId: string) => void;
   onFollow: (link: QuestDeepLink) => void;
 }) {
-  if (pathDone || !quest) {
-    return (
-      <div className="ui-panel mt-2.5 flex h-[3.35rem] items-center justify-between rounded-[1.1rem] border px-3.5 backdrop-blur-md">
-        <span className="text-[13px]">{t("quest_done")}</span>
-        <span className="ui-muted text-[11px]">{t("quest_path_done")}</span>
-      </div>
-    );
-  }
-
   const ready = quest.ready;
 
   return (
-    <div className="mt-2.5">
-      <button
-        type="button"
-        onClick={() => {
-          if (ready) onClaim(quest.quest.id);
-          else onFollow(quest.quest.deepLink);
-        }}
-        className="flex w-full items-center gap-3 rounded-[1.15rem] border px-3.5 py-2.5 text-left backdrop-blur-md active:scale-[0.985]"
-        style={{
-          borderColor: ready ? `${theme.warm}88` : `${theme.ice}28`,
-          background: ready ? `${theme.warm}22` : "rgba(0,0,0,0.28)",
-          boxShadow: ready ? `0 0 22px ${theme.warm}2a` : undefined,
-        }}
-      >
-        <span className="min-w-0 flex-1">
-          <span className="ui-muted text-[10px] uppercase tracking-[0.22em]">{t("quest_kicker")}</span>
-          <span className="mt-1 block text-[15px] font-medium leading-none">
+    <button
+      type="button"
+      onClick={() => {
+        if (ready) onClaim(quest.quest.id);
+        else onFollow(quest.quest.deepLink);
+      }}
+      aria-label={`${t("quest_kicker")}: ${t(quest.quest.detailKey)}`}
+      className="relative mt-2.5 flex min-h-[3.4rem] w-full items-center gap-3 overflow-hidden rounded-[1.15rem] border px-3.5 py-2.5 text-left backdrop-blur-md active:scale-[0.985]"
+      style={{
+        borderColor: ready ? `${theme.warm}88` : `${theme.ice}22`,
+        background: ready ? `${theme.warm}22` : "rgba(0,0,0,0.22)",
+      }}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="ui-muted shrink-0 text-[11px] uppercase tracking-[0.2em]">
+            {t("quest_kicker")}
+          </span>
+          <span className="truncate text-[16px] font-medium leading-none">
             {t(quest.quest.titleKey)}
           </span>
-          <span className="ui-muted mt-1.5 block text-[11px] leading-snug">
-            {t(quest.quest.detailKey)}
-          </span>
-          <span className="mt-2 block h-1 overflow-hidden rounded-full bg-black/40">
-            <span
-              className="block h-full rounded-full transition-[width] duration-300"
-              style={{
-                width: `${quest.ratio * 100}%`,
-                background: ready
-                  ? `linear-gradient(90deg, ${theme.warm}, ${theme.ice})`
-                  : theme.ice,
-              }}
-            />
-          </span>
         </span>
-        <span className="shrink-0 text-right">
-          {ready ? (
-            <span
-              className="inline-block rounded-full px-2.5 py-1.5 text-[12px] font-medium"
-              style={{ background: theme.warm, color: theme.ink }}
-            >
-              {t("quest_claim", { n: quest.quest.reward })}
-            </span>
-          ) : (
-            <>
-              <span className="block text-[12px] tabular-nums" style={{ color: theme.ice }}>
-                {t("quest_progress", { n: quest.current, total: quest.target })}
-              </span>
-              <span className="ui-warm mt-1 block text-[12px]">
-                {t("quest_reward", { n: quest.quest.reward })}
-              </span>
-            </>
-          )}
+        <span className="ui-muted mt-1.5 block truncate text-[13px] leading-snug">
+          {t(quest.quest.detailKey)}
         </span>
-      </button>
-      {next ? (
-        <p className="ui-muted mt-1.5 px-1 text-[11px]">
-          {t(next.quest.titleKey)} · {t("quest_reward", { n: next.quest.reward })}
-        </p>
-      ) : null}
-    </div>
+      </span>
+      {ready ? (
+        <span
+          className="shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium"
+          style={{ background: theme.warm, color: theme.ink }}
+        >
+          {t("quest_claim", { n: quest.quest.reward })}
+        </span>
+      ) : (
+        <span className="shrink-0 text-[15px] tabular-nums" style={{ color: theme.ice }}>
+          {t("quest_progress", { n: quest.current, total: quest.target })}
+        </span>
+      )}
+      <span
+        className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full transition-[width] duration-300"
+        style={{ width: `${quest.ratio * 100}%`, background: ready ? theme.warm : `${theme.ice}99` }}
+        aria-hidden="true"
+      />
+    </button>
+  );
+}
+
+function MenuTile({
+  label,
+  onClick,
+  children,
+  badge,
+  highlight = false,
+  accent,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  badge?: ReactNode;
+  highlight?: boolean;
+  accent?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex h-[4.1rem] flex-col items-center justify-center gap-1.5 rounded-[1.15rem] border backdrop-blur-md active:scale-[0.98] ${
+        highlight ? "ui-panel-active" : "ui-panel"
+      }`}
+      style={
+        highlight && accent
+          ? { borderColor: `${accent}73`, background: `${accent}1f`, boxShadow: `0 0 18px ${accent}24` }
+          : undefined
+      }
+    >
+      {children}
+      <span className="text-[13px] leading-none">{label}</span>
+      {badge ? <span className="absolute right-2 top-1.5">{badge}</span> : null}
+    </button>
   );
 }
 
@@ -1330,9 +1321,7 @@ function ModesScreen({
   onBack,
   onRush,
   onMaster,
-  onMasterRestart,
   onEcho,
-  onEchoRestart,
 }: {
   t: TranslateFn;
   masterLevel: number;
@@ -1343,15 +1332,13 @@ function ModesScreen({
   onBack: () => void;
   onRush: () => void;
   onMaster: () => void;
-  onMasterRestart: () => void;
   onEcho: () => void;
-  onEchoRestart: () => void;
 }) {
   const masterResumable = masterLevel > MASTER_START_DIFFICULTY;
   const echoResumable = echoRound > 1;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <ScreenHeader title={t("modes")} kicker={t("modes_kicker")} backLabel={t("back_menu")} onBack={onBack} />
       <div className="mt-6 flex flex-col gap-3">
         <ModeRow
@@ -1376,8 +1363,6 @@ function ModesScreen({
               : undefined
           }
           onClick={onMaster}
-          onRestart={masterResumable ? onMasterRestart : undefined}
-          restartLabel={t("mode_restart")}
           icon={<ModeMasterIcon />}
         />
         <ModeRow
@@ -1392,12 +1377,68 @@ function ModesScreen({
             !echoResumable && echoBest > 0 ? t("mode_echo_best", { n: echoBest }) : undefined
           }
           onClick={onEcho}
-          onRestart={echoResumable ? onEchoRestart : undefined}
-          restartLabel={t("mode_restart")}
           icon={<ModeEchoIcon />}
         />
       </div>
       <p className="ui-muted mt-auto pb-2 text-center text-[12px]">{t("modes_footer")}</p>
+    </div>
+  );
+}
+
+function ConfirmSheet({
+  title,
+  body,
+  cancelLabel,
+  confirmLabel,
+  danger = false,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: string;
+  cancelLabel: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-40 flex items-end justify-center bg-black/55 px-4 pb-[max(1.15rem,env(safe-area-inset-bottom))] pt-16 backdrop-blur-[3px]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-sheet-title"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label={cancelLabel}
+        onClick={onCancel}
+      />
+      <div className="ui-panel relative z-10 w-full max-w-sm rounded-[1.45rem] border px-5 py-5 shadow-[0_24px_48px_rgba(0,0,0,0.45)]">
+        <p id="confirm-sheet-title" className="text-[1.35rem] font-light tracking-[-0.02em]">
+          {title}
+        </p>
+        <p className="ui-muted mt-2.5 text-[14px] font-light leading-relaxed">{body}</p>
+        <div className="mt-5 flex flex-col gap-2.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="ui-panel flex h-12 w-full items-center justify-center rounded-[1.1rem] border text-[14px] backdrop-blur-md active:scale-[0.98]"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`flex h-12 w-full items-center justify-center rounded-[1.1rem] text-[14px] font-medium active:scale-[0.98] ${
+              danger ? "border border-[#f87171]/55 bg-[#f87171]/18 text-[#fecaca]" : "play-seal"
+            }`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1408,8 +1449,6 @@ function ModeRow({
   tag,
   progress,
   onClick,
-  onRestart,
-  restartLabel,
   icon,
 }: {
   title: string;
@@ -1417,51 +1456,40 @@ function ModeRow({
   tag: string;
   progress?: string;
   onClick: () => void;
-  onRestart?: () => void;
-  restartLabel?: string;
   icon: ReactNode;
 }) {
   return (
-    <div className="ui-panel rounded-[1.35rem] border backdrop-blur-md">
+    <div className="ui-panel overflow-hidden rounded-[1.35rem] border backdrop-blur-md">
       <button
         type="button"
         onClick={onClick}
         className="flex min-h-[5.35rem] w-full items-center gap-3.5 px-3.5 py-3 text-left active:scale-[0.985]"
       >
-      <span
-        className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl"
-        style={{ background: "var(--ui-warm-soft)", color: "var(--ui-warm)" }}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="ui-accent block text-[10px] uppercase tracking-[0.22em]">{tag}</span>
-        <span className="mt-1 block text-[1.2rem] font-medium leading-none tracking-wide">{title}</span>
-        <span className="ui-muted mt-1.5 block text-[12px] leading-snug">{detail}</span>
-        {progress && (
-          <span className="ui-warm mt-1 block text-[11px] tracking-wide">{progress}</span>
-        )}
-      </span>
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="ui-muted shrink-0 opacity-70">
-        <path
-          d="M5 2.5 9.5 7 5 11.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      </button>
-      {onRestart && restartLabel && (
-        <button
-          type="button"
-          onClick={onRestart}
-          className="ui-muted border-t border-[color:var(--ui-line)] px-3.5 py-2.5 text-left text-[12px] tracking-wide active:opacity-70"
+        <span
+          className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl"
+          style={{ background: "var(--ui-warm-soft)", color: "var(--ui-warm)" }}
         >
-          {restartLabel}
-        </button>
-      )}
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="ui-accent block text-[10px] uppercase tracking-[0.22em]">{tag}</span>
+          <span className="mt-1 block text-[1.2rem] font-medium leading-none tracking-wide">{title}</span>
+          <span className="ui-muted mt-1.5 block text-[12px] leading-snug">{detail}</span>
+          {progress && (
+            <span className="ui-warm mt-1 block text-[11px] tracking-wide">{progress}</span>
+          )}
+        </span>
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="ui-muted shrink-0 opacity-70">
+          <path
+            d="M5 2.5 9.5 7 5 11.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -1751,6 +1779,7 @@ function ShopScreen({
   onBuyShape,
   onPickSound,
   onBuySound,
+  onPickTrail,
   onBuyTrail,
   onBuyPack,
   onBuyPremium,
@@ -1766,7 +1795,8 @@ function ShopScreen({
   onBuyShape: (id: CrystalShapeId, price: number) => void;
   onPickSound: (id: SoundPackId) => void;
   onBuySound: (id: SoundPackId, price: number) => void;
-  onBuyTrail: () => void;
+  onPickTrail: (id: TrailId | null) => void;
+  onBuyTrail: (id: TrailId, price: number) => void;
   onBuyPack: (id: CrystalPackId) => void;
   onBuyPremium: () => void;
   onWatchAd: () => void;
@@ -1942,36 +1972,56 @@ function ShopScreen({
         </div>
 
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_effects")}</p>
-        <button
-          type="button"
-          onClick={() => {
-            if (!save.trailOwned && save.crystals < TRAIL_PRICE) {
-              onNote(t("need_crystals", { n: TRAIL_PRICE }));
-              return;
-            }
-            onBuyTrail();
-          }}
-          className={`${tile} ${
-            save.trailOwned && save.trailEnabled ? "ui-panel-active" : ""
-          }`}
-        >
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
-            <TrailIcon active={save.trailOwned} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[17px] font-normal">{t("trail")}</span>
-            <span className="ui-muted mt-1 block text-[13px]">
-              {save.trailOwned
-                ? save.trailEnabled
-                  ? t("trail_on")
-                  : t("trail_off")
-                : t("trail_buy")}
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => onPickTrail(null)}
+            className={`${tile} ${save.activeTrail === null ? "ui-panel-active" : ""}`}
+          >
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+              <TrailIcon id={null} active={save.activeTrail === null} />
             </span>
-          </span>
-          <span className="ui-muted text-[15px] font-light tabular-nums">
-            {save.trailOwned ? (save.trailEnabled ? "ON" : "OFF") : TRAIL_PRICE}
-          </span>
-        </button>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[17px] font-normal">{t("trail_none")}</span>
+              <span className="ui-muted mt-1 block text-[13px]">
+                {save.activeTrail === null ? t("shop_active_board") : t("trail_none_detail")}
+              </span>
+            </span>
+          </button>
+          {TRAIL_STYLES.map((style) => {
+            const owned = save.purchasedTrails.includes(style.id);
+            const active = save.activeTrail === style.id;
+            const canBuy = !owned && save.crystals >= style.price;
+            return (
+              <button
+                key={style.id}
+                type="button"
+                disabled={!owned && !canBuy}
+                onClick={() => {
+                  if (owned) onPickTrail(style.id);
+                  else if (canBuy) onBuyTrail(style.id, style.price);
+                  else onNote(t("need_crystals", { n: style.price }));
+                }}
+                className={`${tile} ${
+                  active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
+                }`}
+              >
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                  <TrailIcon id={style.id} active={owned || canBuy} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-normal">{style.name}</span>
+                  <span className="ui-muted mt-1 block text-[13px]">
+                    {owned ? (active ? t("shop_active_board") : style.detail) : style.detail}
+                  </span>
+                </span>
+                {!owned && (
+                  <span className="ui-muted text-[15px] font-light tabular-nums">{style.price}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">
           {t("shop_packs")}
@@ -2058,9 +2108,90 @@ function WatchAdIcon({ ready }: { ready: boolean }) {
   );
 }
 
-function TrailIcon({ active }: { active: boolean }) {
+function TrailIcon({ id, active }: { id: TrailId | null; active: boolean }) {
   const spark = active ? "var(--ui-warm)" : "#64748b";
   const crystal = active ? "var(--ui-ice)" : "#94a3b8";
+  if (id === null) {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+        <circle cx="14" cy="14" r="8.5" stroke={crystal} strokeWidth="1.4" opacity="0.55" />
+        <path d="M9 19.5 19.5 9" stroke={spark} strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (id === "ember") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden>
+        <circle cx="8" cy="19" r="1.6" fill={spark} opacity="0.45" />
+        <circle cx="12" cy="15" r="2" fill={spark} opacity="0.7" />
+        <circle cx="16.5" cy="11" r="2.3" fill={spark} opacity="0.9" />
+        <path d="M20 6.5c2.2 1.4 3.4 3.6 2.6 5.4-.8 1.8-3 2.4-4.6 1.4" fill={crystal} opacity="0.85" />
+      </svg>
+    );
+  }
+  if (id === "comet") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+        <path
+          d="M6 21c4-3.5 8-7.5 13.5-11.5"
+          stroke={spark}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+        <circle cx="20.5" cy="8.5" r="3.1" fill={crystal} />
+        <circle cx="20.5" cy="8.5" r="1.35" fill={spark} />
+      </svg>
+    );
+  }
+  if (id === "aurora") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+        <path
+          d="M4 18c3-5 6-7 10-7s7 2 10 7"
+          stroke={crystal}
+          strokeWidth="2"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+        <path
+          d="M5 14c3-4.2 5.5-5.8 9-5.8s6 1.6 9 5.8"
+          stroke={spark}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          opacity="0.85"
+        />
+      </svg>
+    );
+  }
+  if (id === "spark") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+        <path d="M14 5v6M14 17v6M5 14h6M17 14h6" stroke={spark} strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M8.2 8.2l3.2 3.2M16.6 16.6l3.2 3.2M19.8 8.2l-3.2 3.2M11.4 16.6l-3.2 3.2" stroke={crystal} strokeWidth="1.35" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (id === "ribbon") {
+    return (
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+        <path
+          d="M5 20c3-1 4.5-4 7-5.5S17 12 20 9c1.5 2 .8 5-1 7.2S14 21 11 22"
+          stroke={crystal}
+          strokeWidth="2.1"
+          strokeLinecap="round"
+          opacity="0.9"
+        />
+        <path
+          d="M7 17c2.2-.6 3.4-2.6 5.2-3.6"
+          stroke={spark}
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+  // dust
   return (
     <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden>
       <circle cx="5.5" cy="20.5" r="1.35" fill={spark} opacity="0.35" />
@@ -2190,7 +2321,6 @@ function SettingsScreen({
   save,
   theme,
   systemLocale,
-  confirmReset,
   onBack,
   onToggleMuted,
   onToggleHaptics,
@@ -2203,7 +2333,6 @@ function SettingsScreen({
   save: GameSave;
   theme: VisualTheme;
   systemLocale: ReturnType<typeof resolveLocale>;
-  confirmReset: boolean;
   onBack: () => void;
   onToggleMuted: () => void;
   onToggleHaptics: () => void;
@@ -2213,13 +2342,14 @@ function SettingsScreen({
   onReset: () => void;
 }) {
   const [langOpen, setLangOpen] = useState(false);
+  const [askReset, setAskReset] = useState(false);
   const languageDetail =
     save.locale === "auto"
       ? t("language_auto", { name: localeNativeName(systemLocale) })
       : localeNativeName(save.locale);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <ScreenHeader
         title={t("settings")}
         kicker={t("settings_kicker")}
@@ -2300,12 +2430,27 @@ function SettingsScreen({
         <SettingRow label={t("duel")} detail={t("duel_settings_detail")} onClick={onDuel} />
         <SettingRow label={t("learn")} detail={t("tutorial_again")} onClick={onTutorial} />
         <SettingRow
-          label={confirmReset ? t("reset_confirm") : t("reset_progress")}
-          detail={confirmReset ? t("reset_confirm_detail") : t("reset_detail")}
+          label={t("reset_progress")}
+          detail={t("reset_detail")}
           danger
-          onClick={onReset}
+          onClick={() => setAskReset(true)}
         />
       </div>
+
+      {askReset && (
+        <ConfirmSheet
+          title={t("reset_ask_title")}
+          body={t("reset_ask_body")}
+          cancelLabel={t("reset_no")}
+          confirmLabel={t("reset_yes")}
+          danger
+          onCancel={() => setAskReset(false)}
+          onConfirm={() => {
+            setAskReset(false);
+            onReset();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2386,32 +2531,6 @@ function ScreenHeader({
         <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">{title}</h1>
       </div>
     </div>
-  );
-}
-
-function FeatureTile({
-  label,
-  detail,
-  onClick,
-  children,
-}: {
-  label: string;
-  detail: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ui-panel flex h-[4.5rem] items-center gap-3 rounded-[1.2rem] border px-3 text-left backdrop-blur-md active:scale-[0.98]"
-    >
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-black/30">{children}</span>
-      <span className="min-w-0">
-        <span className="block text-[15px] font-medium leading-none">{label}</span>
-        <span className="ui-muted mt-1.5 block text-[11px]">{detail}</span>
-      </span>
-    </button>
   );
 }
 

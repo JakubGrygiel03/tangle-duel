@@ -1492,16 +1492,11 @@ export function constellationKindLabel(kind: ConstellationKind): string {
 export const CONSTELLATION_CRYSTAL_REWARD = 40;
 
 /** Promień „studni” magnesu względem promienia areny. Krótki — tylko przy gnieździe. */
-export const MAGNET_RADIUS_FACTOR = 0.1;
+export const MAGNET_RADIUS_FACTOR = 0.13;
 /** Po puszczeniu — dociągnij, jeśli palec jest już w studni. */
-export const MAGNET_SNAP_FACTOR = 0.07;
-/** Dopasowanie figury: węzeł w swoim gnieździe. */
-export const MATCH_RADIUS_FACTOR = 0.18;
-
-function ownWell(outline: readonly Point[], index: number | undefined): Point | null {
-  if (index === undefined) return null;
-  return outline[index] ?? null;
-}
+export const MAGNET_SNAP_FACTOR = 0.09;
+/** Dopasowanie figury: węzeł w dowolnym wolnym gnieździe. */
+export const MATCH_RADIUS_FACTOR = 0.2;
 
 /** Inny kryształ już siedzi w tym gnieździe — nie wciągaj drugiego. */
 function wellTaken(
@@ -1519,9 +1514,32 @@ function wellTaken(
   return false;
 }
 
+/** Najbliższe wolne gniazdo — dowolny kryształ może wejść w dowolną studnię. */
+function nearestFreeWell(
+  x: number,
+  y: number,
+  outline: readonly Point[],
+  arenaRadius: number,
+  selfId: number,
+  nodes: readonly GraphNode[] | undefined,
+  maxDist: number,
+): Point | null {
+  let best: Point | null = null;
+  let bestDist = maxDist;
+  for (const home of outline) {
+    if (wellTaken(home, selfId, nodes, arenaRadius)) continue;
+    const dist = Math.hypot(home.x - x, home.y - y);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      best = home;
+    }
+  }
+  return best;
+}
+
 /**
- * Delikatny magnes wyłącznie do własnego gniazda i tylko z bliska.
- * Cudze studnie są ignorowane, żeby figura nie składała się w obcy kształt.
+ * Delikatny magnes do najbliższego wolnego gniazda (nie tylko „własnego” ID).
+ * Figura da się złożyć na kilka sposobów — studnie są wspólne.
  */
 export function magnetTowardOutline(
   x: number,
@@ -1531,21 +1549,20 @@ export function magnetTowardOutline(
   preferIndex?: number,
   nodes?: readonly GraphNode[],
 ): Point {
-  const home = ownWell(outline, preferIndex);
+  const reach = Math.max(22, arenaRadius * MAGNET_RADIUS_FACTOR);
+  const home = nearestFreeWell(x, y, outline, arenaRadius, preferIndex ?? -1, nodes, reach);
   if (!home) return { x, y };
-  if (wellTaken(home, preferIndex ?? -1, nodes, arenaRadius)) return { x, y };
-  const reach = Math.max(20, arenaRadius * MAGNET_RADIUS_FACTOR);
   const dist = Math.hypot(home.x - x, home.y - y);
-  if (dist > reach || dist < 0.4) return { x, y };
+  if (dist < 0.4) return { x, y };
   const closeness = 1 - dist / reach;
-  const pull = 0.08 + 0.42 * closeness * closeness;
+  const pull = 0.1 + 0.48 * closeness * closeness;
   return {
     x: x + (home.x - x) * pull,
     y: y + (home.y - y) * pull,
   };
 }
 
-/** Przy puszczeniu: dociągnij do własnego gniazda, jeśli palec jest w studni. */
+/** Przy puszczeniu: dociągnij do najbliższego wolnego gniazda, jeśli palec jest w studni. */
 export function snapToOutlineIfClose(
   x: number,
   y: number,
@@ -1554,17 +1571,14 @@ export function snapToOutlineIfClose(
   preferIndex?: number,
   nodes?: readonly GraphNode[],
 ): Point {
-  const home = ownWell(outline, preferIndex);
+  const snap = Math.max(18, arenaRadius * MAGNET_SNAP_FACTOR);
+  const home = nearestFreeWell(x, y, outline, arenaRadius, preferIndex ?? -1, nodes, snap);
   if (!home) return { x, y };
-  if (wellTaken(home, preferIndex ?? -1, nodes, arenaRadius)) return { x, y };
-  const snap = Math.max(16, arenaRadius * MAGNET_SNAP_FACTOR);
-  if (Math.hypot(home.x - x, home.y - y) > snap) return { x, y };
   return { x: home.x, y: home.y };
 }
 
 /**
- * Po rozplątaniu dosuń tylko kryształy, które już stoją przy swoim gnieździe.
- * Dalekie węzły zostają tam, gdzie gracz je położył.
+ * Po rozplątaniu dosuń kryształy, które stoją blisko jakiegokolwiek wolnego gniazda.
  */
 export function settleNodesTowardOutline(
   nodes: readonly GraphNode[],
@@ -1572,21 +1586,20 @@ export function settleNodesTowardOutline(
   arenaRadius: number,
 ): void {
   if (!outline.length || nodes.length !== outline.length) return;
-  const reach = Math.max(18, arenaRadius * MAGNET_RADIUS_FACTOR);
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    const home = outline[i];
-    if (!node || !home) continue;
-    if (wellTaken(home, node.id, nodes, arenaRadius)) continue;
+  const reach = Math.max(20, arenaRadius * MAGNET_RADIUS_FACTOR);
+  for (const node of nodes) {
+    const home = nearestFreeWell(node.x, node.y, outline, arenaRadius, node.id, nodes, reach);
+    if (!home) continue;
     const dist = Math.hypot(home.x - node.x, home.y - node.y);
     if (dist > reach || dist < 0.5) continue;
-    node.tx = node.x + (home.x - node.x) * 0.14;
-    node.ty = node.y + (home.y - node.y) * 0.14;
+    node.tx = node.x + (home.x - node.x) * 0.16;
+    node.ty = node.y + (home.y - node.y) * 0.16;
   }
 }
 
 /**
- * Figura złożona: każdy węzeł w swoim gnieździe (to samo ID co solved).
+ * Figura złożona: każde gniazdo ma dokładnie jeden kryształ w zasięgu
+ * (dowolne przypisanie — nie wymaga node.id === seatIndex).
  */
 export function isConstellationMatched(
   nodes: readonly GraphNode[],
@@ -1594,12 +1607,23 @@ export function isConstellationMatched(
   arenaRadius: number,
 ): boolean {
   if (!outline.length || nodes.length !== outline.length) return false;
-  const limit = Math.max(26, arenaRadius * MATCH_RADIUS_FACTOR);
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    const home = outline[i];
-    if (!node || !home) return false;
-    if (Math.hypot(node.x - home.x, node.y - home.y) > limit) return false;
+  const limit = Math.max(28, arenaRadius * MATCH_RADIUS_FACTOR);
+  const pairs: { seat: number; node: number; dist: number }[] = [];
+  for (let seat = 0; seat < outline.length; seat++) {
+    const home = outline[seat];
+    if (!home) continue;
+    for (const node of nodes) {
+      const dist = Math.hypot(node.x - home.x, node.y - home.y);
+      if (dist <= limit) pairs.push({ seat, node: node.id, dist });
+    }
   }
-  return true;
+  pairs.sort((a, b) => a.dist - b.dist);
+  const usedSeats = new Set<number>();
+  const usedNodes = new Set<number>();
+  for (const pair of pairs) {
+    if (usedSeats.has(pair.seat) || usedNodes.has(pair.node)) continue;
+    usedSeats.add(pair.seat);
+    usedNodes.add(pair.node);
+  }
+  return usedSeats.size === outline.length && usedNodes.size === outline.length;
 }

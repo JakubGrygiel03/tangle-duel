@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
-import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
+import type { CrystalShapeId, SoundPackId, TrailId } from "@/lib/engine/economy";
 import { themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 import type { TranslateFn } from "@/lib/i18n";
 
@@ -19,7 +19,7 @@ type CouchDuelProps = {
   theme: VisualTheme;
   soundPack?: SoundPackId;
   crystalShape?: CrystalShapeId;
-  trail?: boolean;
+  trail?: TrailId | null;
   t?: TranslateFn;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
@@ -42,7 +42,7 @@ export function CouchDuel({
   theme,
   soundPack = "harp",
   crystalShape = "diamond",
-  trail = false,
+  trail = null,
   t,
   onMuted,
   onBack,

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CouchDuel } from "@/components/game/CouchDuel";
 import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
-import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
+import type { CrystalShapeId, SoundPackId, TrailId } from "@/lib/engine/economy";
 import {
   openDuelSession,
   randomRoomCode,
@@ -30,10 +30,12 @@ type DuelLobbyProps = {
   theme: VisualTheme;
   soundPack?: SoundPackId;
   crystalShape?: CrystalShapeId;
-  trail?: boolean;
+  trail?: TrailId | null;
   t: TranslateFn;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
+  /** Utworzenie pokoju albo start kanapy — do misji / zaproszenia znajomego. */
+  onDuelEngaged?: () => void;
 };
 
 export function DuelLobby({
@@ -42,10 +44,11 @@ export function DuelLobby({
   theme,
   soundPack = "harp",
   crystalShape = "diamond",
-  trail = false,
+  trail = null,
   t,
   onMuted,
   onBack,
+  onDuelEngaged,
 }: DuelLobbyProps) {
   const [phase, setPhase] = useState<Phase>({ kind: "pick" });
   const [joinInput, setJoinInput] = useState("");
@@ -162,6 +165,7 @@ export function DuelLobby({
     const code = randomRoomCode();
     roleRef.current = "host";
     setPhase({ kind: "host", code, status: t("duel_waiting") });
+    onDuelEngaged?.();
     try {
       sessionRef.current = await openDuelSession("host", code, {
         onOpen: () => setPhase({ kind: "host", code, status: t("duel_connected_host") }),
@@ -308,7 +312,10 @@ export function DuelLobby({
                   title={t("duel_couch")}
                   detail={t("duel_couch_detail")}
                   tag={t("duel_couch_tag")}
-                  onClick={() => setPhase({ kind: "couch" })}
+                  onClick={() => {
+                    onDuelEngaged?.();
+                    setPhase({ kind: "couch" });
+                  }}
                   icon={<CouchIcon />}
                 />
                 <DuelOptionRow

@@ -68,6 +68,11 @@ export type MessageKey =
   | "reset_detail"
   | "reset_confirm"
   | "reset_confirm_detail"
+  | "reset_ask_title"
+  | "reset_ask_body"
+  | "reset_yes"
+  | "reset_no"
+  | "confirm_cancel"
   | "back_menu"
   | "modes_kicker"
   | "modes_footer"
@@ -86,7 +91,6 @@ export type MessageKey =
   | "mode_echo_progress"
   | "mode_echo_best"
   | "mode_continue"
-  | "mode_restart"
   | "rush_over"
   | "rush_again"
   | "menu"
@@ -103,6 +107,8 @@ export type MessageKey =
   | "map_realm_locked"
   | "map_constellation"
   | "map_continue"
+  | "map_here"
+  | "map_chapter"
   | "realm_dusk"
   | "realm_dusk_detail"
   | "realm_nebula"
@@ -133,9 +139,8 @@ export type MessageKey =
   | "shop_active_board"
   | "shop_active_sound"
   | "trail"
-  | "trail_on"
-  | "trail_off"
-  | "trail_buy"
+  | "trail_none"
+  | "trail_none_detail"
   | "remove_ads"
   | "remove_ads_detail"
   | "remove_ads_owned"
@@ -151,7 +156,6 @@ export type MessageKey =
   | "shape_unlocked"
   | "sound_unlocked"
   | "trail_unlocked"
-  | "trail_toggled"
   | "pack_claimed"
   | "ad_reward"
   | "ad_wait"
@@ -222,6 +226,40 @@ export type MessageKey =
   | "quest_q7_detail"
   | "quest_q8_title"
   | "quest_q8_detail"
+  | "quest_q9_title"
+  | "quest_q9_detail"
+  | "quest_q10_title"
+  | "quest_q10_detail"
+  | "quest_q11_title"
+  | "quest_q11_detail"
+  | "quest_q12_title"
+  | "quest_q12_detail"
+  | "quest_q13_title"
+  | "quest_q13_detail"
+  | "quest_q14_title"
+  | "quest_q14_detail"
+  | "quest_q15_title"
+  | "quest_q15_detail"
+  | "quest_q16_title"
+  | "quest_q16_detail"
+  | "quest_q17_title"
+  | "quest_q17_detail"
+  | "quest_q18_title"
+  | "quest_q18_detail"
+  | "quest_q19_title"
+  | "quest_q19_detail"
+  | "quest_q20_title"
+  | "quest_q20_detail"
+  | "quest_q21_title"
+  | "quest_q21_detail"
+  | "quest_q22_title"
+  | "quest_q22_detail"
+  | "quest_q23_title"
+  | "quest_q23_detail"
+  | "quest_q24_title"
+  | "quest_q24_detail"
+  | "quest_q25_title"
+  | "quest_q25_detail"
   | "tutorial_title"
   | "tutorial_skip"
   | "tutorial_next"
@@ -327,6 +365,11 @@ const en: Dict = {
   reset_detail: "Levels & album from scratch · premium and account stay",
   reset_confirm: "Really clear?",
   reset_confirm_detail: "Tap again — start from level 1 · purchases kept",
+  reset_ask_title: "Clear all progress?",
+  reset_ask_body: "Campaign, album, and mode runs reset. Premium, account, and purchases stay.",
+  reset_yes: "Yes, clear everything",
+  reset_no: "Keep my progress",
+  confirm_cancel: "Cancel",
   back_menu: "Back to menu",
   modes_kicker: "Play variants",
   modes_footer: "Master & Echo save progress · crystals for every clear",
@@ -345,7 +388,6 @@ const en: Dict = {
   mode_echo_progress: "Layout {n} · best {best}",
   mode_echo_best: "Best streak: {n}",
   mode_continue: "Continue",
-  mode_restart: "Start from the beginning",
   rush_over: "Run over",
   rush_again: "Again",
   menu: "Menu",
@@ -362,6 +404,8 @@ const en: Dict = {
   map_realm_locked: "Reach level {n}",
   map_constellation: "Figure",
   map_continue: "Continue",
+  map_here: "You are here",
+  map_chapter: "Chapter {n}",
   realm_dusk: "Dusk Shore",
   realm_dusk_detail: "First knots · soft twilight",
   realm_nebula: "Nebula Veil",
@@ -392,9 +436,8 @@ const en: Dict = {
   shop_active_board: "Active on board",
   shop_active_sound: "Active",
   trail: "Light trail",
-  trail_on: "On · tap to turn off",
-  trail_off: "Off · tap to turn on",
-  trail_buy: "Dust behind the dragged crystal",
+  trail_none: "No trail",
+  trail_none_detail: "Crystal moves without a wake",
   remove_ads: "Unlock everything & remove ads",
   remove_ads_detail: "Themes, shapes, sounds, trail — one-time {price}",
   remove_ads_owned: "Everything unlocked · ads removed",
@@ -409,8 +452,7 @@ const en: Dict = {
   theme_unlocked: "Theme unlocked",
   shape_unlocked: "Shape unlocked",
   sound_unlocked: "Sound unlocked",
-  trail_unlocked: "Light trail unlocked",
-  trail_toggled: "Trail toggled",
+  trail_unlocked: "Trail unlocked",
   pack_claimed: "+{n} crystals · {name}",
   ad_reward: "+{n} crystals (ad placeholder)",
   ad_wait: "Wait a moment for the next reward",
@@ -453,7 +495,7 @@ const en: Dict = {
   hud_pairs: "Pairs",
   hud_min_moves: "Min moves",
   hint_echo: "Touch a crystal — sonar briefly shows strings and crossings.",
-  hint_magnet: "Magnet pulls into light wells — assemble the outline, no crossings.",
+  hint_magnet: "Any crystal snaps into a free light well — fill the outline, no crossings.",
   hint_untangle: "Drag crystals inside the circle until the strings stop crossing.",
   cleared_default: "Untangled",
   board_aria: "Tangle Duel board. Drag crystals to untangle the strings.",
@@ -471,17 +513,51 @@ const en: Dict = {
   quest_q2_title: "Daylight string",
   quest_q2_detail: "Claim today's Daily",
   quest_q3_title: "Flash hands",
-  quest_q3_detail: "Clear 5 layouts in Rush",
+  quest_q3_detail: "Clear 5 layouts in Rush (total)",
   quest_q4_title: "Star figure",
   quest_q4_detail: "Reveal 1 constellation",
   quest_q5_title: "Steady path",
   quest_q5_detail: "Clear 10 campaign levels",
   quest_q6_title: "Rival thread",
-  quest_q6_detail: "Open a duel once",
+  quest_q6_detail: "Create a room for a friend — or play couch on one phone",
   quest_q7_title: "Far shore",
   quest_q7_detail: "Reach campaign level 20",
-  quest_q8_title: "Rush master",
-  quest_q8_detail: "Clear 15 layouts in Rush total",
+  quest_q8_title: "Rush sum",
+  quest_q8_detail: "Clear 15 Rush layouts in total (all runs)",
+  quest_q9_title: "First streak",
+  quest_q9_detail: "Reach a Rush record of 5 in one run",
+  quest_q10_title: "Longer path",
+  quest_q10_detail: "Clear 25 campaign levels",
+  quest_q11_title: "Double digits",
+  quest_q11_detail: "Reach a Rush record of 10 in one run",
+  quest_q12_title: "Sky album",
+  quest_q12_detail: "Reveal 3 constellations",
+  quest_q13_title: "Master steps",
+  quest_q13_detail: "Reach Master difficulty 5",
+  quest_q14_title: "Dusk complete",
+  quest_q14_detail: "Reach campaign level 36",
+  quest_q15_title: "Rush fifteen",
+  quest_q15_detail: "Reach a Rush record of 15 in one run",
+  quest_q16_title: "Echo glow",
+  quest_q16_detail: "Clear 5 Echo layouts (best streak)",
+  quest_q17_title: "Storm hours",
+  quest_q17_detail: "Clear 40 Rush layouts in total",
+  quest_q18_title: "Halfway knots",
+  quest_q18_detail: "Clear 50 campaign levels",
+  quest_q19_title: "Six figures",
+  quest_q19_detail: "Reveal 6 constellations",
+  quest_q20_title: "Rush twenty",
+  quest_q20_detail: "Reach a Rush record of 20 in one run",
+  quest_q21_title: "Nebula gate",
+  quest_q21_detail: "Reach campaign level 72",
+  quest_q22_title: "Master twelve",
+  quest_q22_detail: "Reach Master difficulty 12",
+  quest_q23_title: "Century clear",
+  quest_q23_detail: "Clear 100 campaign levels",
+  quest_q24_title: "Rush flood",
+  quest_q24_detail: "Clear 80 Rush layouts in total",
+  quest_q25_title: "Journey's end",
+  quest_q25_detail: "Reach campaign level 180",
   tutorial_title: "Tutorial",
   tutorial_skip: "Skip",
   tutorial_next: "Next",
@@ -587,6 +663,11 @@ const pl: Dict = {
   reset_detail: "Poziomy i album od zera · premium i konto zostają",
   reset_confirm: "Na pewno wyczyścić?",
   reset_confirm_detail: "Stuknij jeszcze raz — start od 1 · zakupy zostają",
+  reset_ask_title: "Wyczyścić cały postęp?",
+  reset_ask_body: "Kampania, album i biegi trybów wrócą do zera. Premium, konto i zakupy zostają.",
+  reset_yes: "Tak, wyczyść wszystko",
+  reset_no: "Zostaw mój postęp",
+  confirm_cancel: "Anuluj",
   back_menu: "Wróć do menu",
   modes_kicker: "Warianty rozgrywki",
   modes_footer: "Mistrz i Echo zapisują postęp · kryształy za każde rozplątanie",
@@ -605,7 +686,6 @@ const pl: Dict = {
   mode_echo_progress: "Układ {n} · rekord {best}",
   mode_echo_best: "Najlepsza seria: {n}",
   mode_continue: "Kontynuuj",
-  mode_restart: "Od początku",
   rush_over: "Koniec biegu",
   rush_again: "Jeszcze raz",
   menu: "Menu",
@@ -622,6 +702,8 @@ const pl: Dict = {
   map_realm_locked: "Do poziomu {n}",
   map_constellation: "Figura",
   map_continue: "Kontynuuj",
+  map_here: "Tu jesteś",
+  map_chapter: "Kraina {n}",
   realm_dusk: "Brzeg Zmierzchu",
   realm_dusk_detail: "Pierwsze węzły · miękki zmrok",
   realm_nebula: "Zasłona Mgławicy",
@@ -652,9 +734,8 @@ const pl: Dict = {
   shop_active_board: "Aktywny na planszy",
   shop_active_sound: "Aktywne",
   trail: "Ślad światła",
-  trail_on: "Włączony · stuknij, by wyłączyć",
-  trail_off: "Wyłączony · stuknij, by włączyć",
-  trail_buy: "Pył za przeciąganym kryształem",
+  trail_none: "Bez śladu",
+  trail_none_detail: "Kryształ bez smugi za ruchem",
   remove_ads: "Odblokuj wszystko i usuń reklamy",
   remove_ads_detail: "Motywy, kształty, brzmienia, ślad — jednorazowo {price}",
   remove_ads_owned: "Wszystko odblokowane · bez reklam",
@@ -669,8 +750,7 @@ const pl: Dict = {
   theme_unlocked: "Motyw odblokowany",
   shape_unlocked: "Kształt odblokowany",
   sound_unlocked: "Brzmienie odblokowane",
-  trail_unlocked: "Ślad światła odblokowany",
-  trail_toggled: "Ślad przełączony",
+  trail_unlocked: "Ślad odblokowany",
   pack_claimed: "+{n} kryształów · {name}",
   ad_reward: "+{n} kryształów (tu będzie reklama)",
   ad_wait: "Poczekaj chwilę na kolejną nagrodę",
@@ -713,7 +793,7 @@ const pl: Dict = {
   hud_pairs: "Par",
   hud_min_moves: "Min. ruchy",
   hint_echo: "Dotknij kryształu — sonar na chwilę pokaże struny i przecięcia.",
-  hint_magnet: "Magnes wciąga do świetlnych gniazd — złóż figurę zarysu, bez przecięć.",
+  hint_magnet: "Każdy kryształ wciąga do wolnego gniazda — wypełnij zarys, bez przecięć.",
   hint_untangle: "Przeciągnij kryształy wewnątrz okręgu, aż struny przestaną się przecinać.",
   cleared_default: "Rozplątane",
   board_aria: "Plansza Tangle Duel. Przeciągnij kryształy, aby rozplątać struny.",
@@ -731,17 +811,51 @@ const pl: Dict = {
   quest_q2_title: "Dzienna nić",
   quest_q2_detail: "Odbierz dzisiejsze Daily",
   quest_q3_title: "Błyskawica",
-  quest_q3_detail: "Zalicz 5 układów w Błyskawicy",
+  quest_q3_detail: "Zalicz 5 układów w Błyskawicy (łącznie)",
   quest_q4_title: "Figura gwiazd",
   quest_q4_detail: "Odkryj 1 konstelację",
   quest_q5_title: "Stała ścieżka",
   quest_q5_detail: "Zalicz 10 poziomów kampanii",
   quest_q6_title: "Nić rywala",
-  quest_q6_detail: "Otwórz pojedynek raz",
+  quest_q6_detail: "Utwórz pokój dla znajomego — albo zagraj kanapę na jednym telefonie",
   quest_q7_title: "Daleki brzeg",
   quest_q7_detail: "Dotrzyj do poziomu 20",
-  quest_q8_title: "Mistrz Błyskawicy",
-  quest_q8_detail: "Zalicz 15 układów Błyskawicy łącznie",
+  quest_q8_title: "Suma błyskawic",
+  quest_q8_detail: "Zalicz 15 układów Błyskawicy łącznie (wszystkie biegi)",
+  quest_q9_title: "Pierwsza seria",
+  quest_q9_detail: "Ustanów rekord Błyskawicy: 5 w jednym biegu",
+  quest_q10_title: "Dłuższa ścieżka",
+  quest_q10_detail: "Zalicz 25 poziomów kampanii",
+  quest_q11_title: "Dwucyfrowy bieg",
+  quest_q11_detail: "Ustanów rekord Błyskawicy: 10 w jednym biegu",
+  quest_q12_title: "Album nieba",
+  quest_q12_detail: "Odkryj 3 konstelacje",
+  quest_q13_title: "Kroki Mistrza",
+  quest_q13_detail: "Dotrzyj do trudności 5 w Mistrzu",
+  quest_q14_title: "Koniec Zmierzchu",
+  quest_q14_detail: "Dotrzyj do poziomu 36",
+  quest_q15_title: "Rekord 15",
+  quest_q15_detail: "Ustanów rekord Błyskawicy: 15 w jednym biegu",
+  quest_q16_title: "Blask Echo",
+  quest_q16_detail: "Zalicz 5 układów Echo (najlepsza seria)",
+  quest_q17_title: "Burzowe godziny",
+  quest_q17_detail: "Zalicz 40 układów Błyskawicy łącznie",
+  quest_q18_title: "Półmetek",
+  quest_q18_detail: "Zalicz 50 poziomów kampanii",
+  quest_q19_title: "Sześć figur",
+  quest_q19_detail: "Odkryj 6 konstelacji",
+  quest_q20_title: "Rekord 20",
+  quest_q20_detail: "Ustanów rekord Błyskawicy: 20 w jednym biegu",
+  quest_q21_title: "Brama Mgławicy",
+  quest_q21_detail: "Dotrzyj do poziomu 72",
+  quest_q22_title: "Mistrz 12",
+  quest_q22_detail: "Dotrzyj do trudności 12 w Mistrzu",
+  quest_q23_title: "Sto clearów",
+  quest_q23_detail: "Zalicz 100 poziomów kampanii",
+  quest_q24_title: "Powódź błyskawic",
+  quest_q24_detail: "Zalicz 80 układów Błyskawicy łącznie",
+  quest_q25_title: "Koniec podróży",
+  quest_q25_detail: "Dotrzyj do poziomu 180",
   tutorial_title: "Samouczek",
   tutorial_skip: "Pomiń",
   tutorial_next: "Dalej",
@@ -847,6 +961,11 @@ const de: Dict = {
   reset_detail: "Level & Album von vorn · Premium und Konto bleiben",
   reset_confirm: "Wirklich löschen?",
   reset_confirm_detail: "Nochmal tippen — Start bei 1 · Käufe bleiben",
+  reset_ask_title: "Allen Fortschritt löschen?",
+  reset_ask_body: "Kampagne, Album und Modi zurücksetzen. Premium, Konto und Käufe bleiben.",
+  reset_yes: "Ja, alles löschen",
+  reset_no: "Fortschritt behalten",
+  confirm_cancel: "Abbrechen",
   back_menu: "Zurück zum Menü",
   modes_kicker: "Spielvarianten",
   modes_footer: "Meister & Echo speichern · Kristalle für jeden Clear",
@@ -865,7 +984,6 @@ const de: Dict = {
   mode_echo_progress: "Layout {n} · Best {best}",
   mode_echo_best: "Beste Serie: {n}",
   mode_continue: "Weiter",
-  mode_restart: "Von vorn",
   rush_over: "Lauf vorbei",
   rush_again: "Nochmal",
   menu: "Menü",
@@ -912,9 +1030,8 @@ const de: Dict = {
   shop_active_board: "Aktiv auf dem Brett",
   shop_active_sound: "Aktiv",
   trail: "Lichtspur",
-  trail_on: "An · tippen zum Aus",
-  trail_off: "Aus · tippen zum An",
-  trail_buy: "Staub hinter dem Kristall",
+  trail_none: "Ohne Spur",
+  trail_none_detail: "Kristall ohne Schweif",
   remove_ads: "Alles freischalten und Werbung entfernen",
   remove_ads_detail: "Themes, Formen, Klänge, Spur — einmalig {price}",
   remove_ads_owned: "Alles freigeschaltet · keine Werbung",
@@ -929,8 +1046,7 @@ const de: Dict = {
   theme_unlocked: "Theme freigeschaltet",
   shape_unlocked: "Form freigeschaltet",
   sound_unlocked: "Klang freigeschaltet",
-  trail_unlocked: "Lichtspur freigeschaltet",
-  trail_toggled: "Spur umgeschaltet",
+  trail_unlocked: "Spur freigeschaltet",
   pack_claimed: "+{n} Kristalle · {name}",
   ad_reward: "+{n} Kristalle (Werbung folgt)",
   ad_wait: "Kurz warten auf die nächste Belohnung",
@@ -1050,6 +1166,11 @@ const es: Dict = {
   reset_detail: "Niveles y álbum desde cero · premium y cuenta se quedan",
   reset_confirm: "¿Borrar de verdad?",
   reset_confirm_detail: "Toca otra vez — nivel 1 · compras se quedan",
+  reset_ask_title: "¿Borrar todo el progreso?",
+  reset_ask_body: "Campaña, álbum y modos a cero. Premium, cuenta y compras se quedan.",
+  reset_yes: "Sí, borrar todo",
+  reset_no: "Conservar mi progreso",
+  confirm_cancel: "Cancelar",
   back_menu: "Volver al menú",
   modes_kicker: "Variantes de juego",
   modes_footer: "Maestro y Eco guardan el progreso · cristales por cada clear",
@@ -1068,7 +1189,6 @@ const es: Dict = {
   mode_echo_progress: "Diseño {n} · récord {best}",
   mode_echo_best: "Mejor racha: {n}",
   mode_continue: "Continuar",
-  mode_restart: "Desde el inicio",
   rush_over: "Fin de la ronda",
   rush_again: "Otra vez",
   menu: "Menú",
@@ -1115,9 +1235,8 @@ const es: Dict = {
   shop_active_board: "Activo en el tablero",
   shop_active_sound: "Activo",
   trail: "Rastro de luz",
-  trail_on: "Activo · toca para apagar",
-  trail_off: "Apagado · toca para encender",
-  trail_buy: "Polvo tras el cristal arrastrado",
+  trail_none: "Sin rastro",
+  trail_none_detail: "Cristal sin estela",
   remove_ads: "Desbloquear todo y quitar anuncios",
   remove_ads_detail: "Temas, formas, sonidos, rastro — una vez {price}",
   remove_ads_owned: "Todo desbloqueado · sin anuncios",
@@ -1132,8 +1251,7 @@ const es: Dict = {
   theme_unlocked: "Tema desbloqueado",
   shape_unlocked: "Forma desbloqueada",
   sound_unlocked: "Sonido desbloqueado",
-  trail_unlocked: "Rastro de luz desbloqueado",
-  trail_toggled: "Rastro cambiado",
+  trail_unlocked: "Rastro desbloqueado",
   pack_claimed: "+{n} cristales · {name}",
   ad_reward: "+{n} cristales (aquí irá el anuncio)",
   ad_wait: "Espera un momento para la siguiente recompensa",
@@ -1253,6 +1371,11 @@ const ru: Dict = {
   reset_detail: "Уровни и альбом с нуля · премиум и аккаунт остаются",
   reset_confirm: "Точно очистить?",
   reset_confirm_detail: "Ещё раз — старт с 1 · покупки остаются",
+  reset_ask_title: "Сбросить весь прогресс?",
+  reset_ask_body: "Кампания, альбом и режимы обнулятся. Премиум, аккаунт и покупки останутся.",
+  reset_yes: "Да, сбросить всё",
+  reset_no: "Оставить прогресс",
+  confirm_cancel: "Отмена",
   back_menu: "В меню",
   modes_kicker: "Варианты игры",
   modes_footer: "Мастер и Эхо сохраняют прогресс · кристаллы за каждый клир",
@@ -1271,7 +1394,6 @@ const ru: Dict = {
   mode_echo_progress: "Узор {n} · рекорд {best}",
   mode_echo_best: "Лучшая серия: {n}",
   mode_continue: "Продолжить",
-  mode_restart: "Сначала",
   rush_over: "Забег окончен",
   rush_again: "Ещё раз",
   menu: "Меню",
@@ -1318,9 +1440,8 @@ const ru: Dict = {
   shop_active_board: "Активно на поле",
   shop_active_sound: "Активно",
   trail: "Световой след",
-  trail_on: "Вкл. · нажмите, чтобы выкл.",
-  trail_off: "Выкл. · нажмите, чтобы вкл.",
-  trail_buy: "Пыль за перетаскиваемым кристаллом",
+  trail_none: "Без следа",
+  trail_none_detail: "Кристалл без шлейфа",
   remove_ads: "Открыть всё и убрать рекламу",
   remove_ads_detail: "Темы, формы, звуки, след — разово {price}",
   remove_ads_owned: "Всё открыто · без рекламы",
@@ -1335,8 +1456,7 @@ const ru: Dict = {
   theme_unlocked: "Тема открыта",
   shape_unlocked: "Форма открыта",
   sound_unlocked: "Звук открыт",
-  trail_unlocked: "Световой след открыт",
-  trail_toggled: "След переключён",
+  trail_unlocked: "След открыт",
   pack_claimed: "+{n} кристаллов · {name}",
   ad_reward: "+{n} кристаллов (здесь будет реклама)",
   ad_wait: "Подождите немного до следующей награды",

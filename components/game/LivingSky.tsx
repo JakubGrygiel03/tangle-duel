@@ -112,7 +112,9 @@ function arenaFor(
   }
   const top = band?.top && band.top > 8 ? band.top : Math.min(height * 0.22, 176);
   const bottom = band?.bottom && band.bottom > 8 ? band.bottom : Math.min(height * 0.28, 210);
-  return computeArena(width, height, { top, bottom });
+  // Trochę mniejszy okrąg niż pełny slot między tytułem a CTA — zostawia oddech.
+  const arena = computeArena(width, height, { top, bottom });
+  return { ...arena, radius: arena.radius * 0.82 };
 }
 
 function buildGraph(arena: Arena, pose: Pose): Graph {

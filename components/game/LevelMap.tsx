@@ -8,10 +8,10 @@ import {
   type CSSProperties,
   type MutableRefObject,
 } from "react";
-import { isLevelPlayable } from "@/components/game/storage";
 import {
   constellationForLevel,
   isConstellationLevel,
+  type Constellation,
 } from "@/lib/engine/constellations";
 import { CAMPAIGN_LEVELS } from "@/lib/engine/graph";
 import {
@@ -47,27 +47,338 @@ const REALM_TITLE: Record<RealmId, MessageKey> = {
   garden: "realm_garden",
 };
 
-const REALM_DETAIL: Record<RealmId, MessageKey> = {
-  dusk: "realm_dusk_detail",
-  nebula: "realm_nebula_detail",
-  glacier: "realm_glacier_detail",
-  ember: "realm_ember_detail",
-  garden: "realm_garden_detail",
+const ROMAN = ["I", "II", "III", "IV", "V"] as const;
+
+/** Wysokość jednego przystanku — trochę luźniej, żeby szeroki slalom się czytał. */
+const ROW_REM = 3.75;
+const ROW_UNITS = 10;
+
+/**
+ * Szeroki slalom L↔P z bezpiecznym marginesem od krawędzi karty.
+ * ~6 poziomów na półokrąg — wypełnia pustki, węzły nie ocierają o bok.
+ */
+function pathX(index: number): number {
+  const i = index;
+  const sweep = Math.sin(i * (Math.PI / 3.15));
+  const drift = Math.sin(i * 0.19 + 0.85) * 0.2;
+  const t = Math.max(-1, Math.min(1, sweep * 0.94 + drift));
+  // 50 ± 34 → ok. 16%…84% — oddech od lewej/prawej, nadal wypełnia planszę.
+  return 50 + t * 34;
+}
+
+function pathY(index: number): number {
+  return index * ROW_UNITS + ROW_UNITS / 2;
+}
+
+/** Deterministyczny szum 0…1 z pary liczb (bez Math.random). */
+function mapHash(a: number, b: number): number {
+  let n = ((a * 73856093) ^ (b * 19349663)) >>> 0;
+  n = Math.imul(n ^ (n >>> 16), 2246822507) >>> 0;
+  n = Math.imul(n ^ (n >>> 13), 3266489909) >>> 0;
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+type MapSketch = {
+  id: string;
+  solved: readonly { x: number; y: number }[];
+  edges: readonly { a: number; b: number }[];
 };
 
-/** Zigzag lanes — procent od lewej krawędzi ścieżki. */
-function pathLeftPercent(index: number): number {
-  const phase = index % 4;
-  if (phase === 0) return 50;
-  if (phase === 1) return 78;
-  if (phase === 2) return 50;
-  return 22;
+type GhostSpot = {
+  key: string;
+  sketch: MapSketch;
+  lit: boolean;
+  left: number;
+  topRem: number;
+  sizeRem: number;
+  rotateDeg: number;
+  opacity: number;
+};
+
+type PocketPeak = {
+  index: number;
+  side: "left" | "right";
+  depth: number;
+};
+
+function e(a: number, b: number): { a: number; b: number } {
+  return { a, b };
+}
+
+/** Wymyślone sylwetki tylko na mapę — nie są poziomami gry. */
+const MAP_FANCY: readonly MapSketch[] = [
+  {
+    id: "crescent",
+    solved: [
+      { x: 0.15, y: -0.85 },
+      { x: 0.7, y: -0.35 },
+      { x: 0.75, y: 0.35 },
+      { x: 0.15, y: 0.85 },
+      { x: -0.15, y: 0.35 },
+      { x: -0.1, y: -0.35 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 0)],
+  },
+  {
+    id: "spiral",
+    solved: [
+      { x: 0, y: 0 },
+      { x: 0.35, y: -0.15 },
+      { x: 0.45, y: 0.35 },
+      { x: -0.15, y: 0.55 },
+      { x: -0.65, y: 0.05 },
+      { x: -0.35, y: -0.55 },
+      { x: 0.35, y: -0.75 },
+      { x: 0.85, y: -0.15 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 6), e(6, 7)],
+  },
+  {
+    id: "kite",
+    solved: [
+      { x: 0, y: -0.9 },
+      { x: 0.55, y: 0 },
+      { x: 0, y: 0.55 },
+      { x: -0.55, y: 0 },
+      { x: 0, y: 0.95 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 0), e(2, 4)],
+  },
+  {
+    id: "leaf",
+    solved: [
+      { x: 0, y: -0.9 },
+      { x: 0.55, y: -0.25 },
+      { x: 0.35, y: 0.45 },
+      { x: 0, y: 0.9 },
+      { x: -0.35, y: 0.45 },
+      { x: -0.55, y: -0.25 },
+      { x: 0, y: 0.1 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 0), e(0, 6), e(6, 3)],
+  },
+  {
+    id: "droplet",
+    solved: [
+      { x: 0, y: -0.9 },
+      { x: 0.45, y: -0.15 },
+      { x: 0.55, y: 0.4 },
+      { x: 0, y: 0.85 },
+      { x: -0.55, y: 0.4 },
+      { x: -0.45, y: -0.15 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 0)],
+  },
+  {
+    id: "mount",
+    solved: [
+      { x: -0.9, y: 0.55 },
+      { x: -0.35, y: -0.35 },
+      { x: 0, y: 0.15 },
+      { x: 0.4, y: -0.75 },
+      { x: 0.9, y: 0.55 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4)],
+  },
+  {
+    id: "orbit",
+    solved: [
+      { x: 0, y: -0.75 },
+      { x: 0.7, y: -0.25 },
+      { x: 0.55, y: 0.55 },
+      { x: -0.55, y: 0.55 },
+      { x: -0.7, y: -0.25 },
+      { x: 0, y: 0 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 0), e(0, 5), e(2, 5), e(4, 5)],
+  },
+  {
+    id: "shard",
+    solved: [
+      { x: -0.2, y: -0.9 },
+      { x: 0.55, y: -0.45 },
+      { x: 0.25, y: 0.35 },
+      { x: -0.55, y: 0.85 },
+      { x: -0.7, y: -0.1 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 0), e(0, 2)],
+  },
+  {
+    id: "arch",
+    solved: [
+      { x: -0.75, y: 0.7 },
+      { x: -0.75, y: -0.15 },
+      { x: -0.25, y: -0.75 },
+      { x: 0.25, y: -0.75 },
+      { x: 0.75, y: -0.15 },
+      { x: 0.75, y: 0.7 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5)],
+  },
+  {
+    id: "bloom",
+    solved: [
+      { x: 0, y: 0 },
+      { x: 0, y: -0.85 },
+      { x: 0.75, y: -0.35 },
+      { x: 0.55, y: 0.6 },
+      { x: -0.55, y: 0.6 },
+      { x: -0.75, y: -0.35 },
+    ],
+    edges: [e(0, 1), e(0, 2), e(0, 3), e(0, 4), e(0, 5), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 1)],
+  },
+  {
+    id: "hook",
+    solved: [
+      { x: -0.35, y: -0.9 },
+      { x: 0.35, y: -0.9 },
+      { x: 0.55, y: -0.2 },
+      { x: 0.15, y: 0.35 },
+      { x: 0.55, y: 0.75 },
+      { x: -0.15, y: 0.9 },
+      { x: -0.55, y: 0.35 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 4), e(4, 5), e(5, 6), e(6, 3)],
+  },
+  {
+    id: "prism",
+    solved: [
+      { x: 0, y: -0.85 },
+      { x: 0.75, y: 0.15 },
+      { x: 0, y: 0.85 },
+      { x: -0.75, y: 0.15 },
+      { x: 0, y: 0.05 },
+    ],
+    edges: [e(0, 1), e(1, 2), e(2, 3), e(3, 0), e(0, 4), e(1, 4), e(2, 4), e(3, 4)],
+  },
+];
+
+function sketchFromConstellation(figure: Constellation): MapSketch {
+  return { id: figure.id, solved: figure.solved, edges: figure.edges };
+}
+
+/**
+ * Gęstsza kompozycja: prawdziwe figury + wymyślone sylwetki w zatokach L/P.
+ * Start/koniec krainy bez wpychania.
+ */
+function buildGhostSpots(
+  levels: readonly number[],
+  clearedSet: ReadonlySet<number>,
+  seed: number,
+): GhostSpot[] {
+  const milestones: { index: number; sketch: MapSketch; lit: boolean }[] = [];
+  for (let index = 0; index < levels.length; index++) {
+    const figure = constellationForLevel(levels[index]!);
+    if (figure) {
+      milestones.push({
+        index,
+        sketch: sketchFromConstellation(figure),
+        lit: clearedSet.has(figure.level),
+      });
+    }
+  }
+
+  const last = levels.length - 1;
+  const tipPad = Math.min(3, Math.max(2, Math.floor(levels.length * 0.06)));
+  const minGap = 2.6;
+
+  // Kandydaci: obie strony przy każdym rzędzie z wyraźnym odchyleniem ścieżki.
+  const peaks: PocketPeak[] = [];
+  for (let index = tipPad; index <= last - tipPad; index++) {
+    const x = pathX(index);
+    const lean = x - 50;
+    const abs = Math.abs(lean);
+    if (abs < 12) continue;
+    const primary: "left" | "right" = lean >= 0 ? "left" : "right";
+    const depth = Math.min(1, (abs - 12) / 20);
+    peaks.push({ index, side: primary, depth });
+    // Po przeciwnej stronie — mniejszy duch w płytszej kieszeni.
+    if (abs >= 22 && index % 2 === 0) {
+      peaks.push({
+        index: index + 0.35,
+        side: primary === "left" ? "right" : "left",
+        depth: depth * 0.45,
+      });
+    }
+  }
+
+  const chosen: PocketPeak[] = [];
+  const cap = Math.min(14, Math.max(8, Math.floor(levels.length / 2.4)));
+  for (const peak of peaks) {
+    if (chosen.length >= cap) break;
+    const crowded = chosen.some((other) => {
+      const dy = Math.abs(other.index - peak.index);
+      if (other.side !== peak.side) return dy < minGap * 0.55;
+      return dy < minGap;
+    });
+    if (crowded) continue;
+    chosen.push(peak);
+  }
+  chosen.sort((a, b) => a.index - b.index);
+
+  const sizeTier = [5.8, 3.2, 4.6, 3.8, 6.2, 2.9, 4.2, 5.2, 3.5, 4.9] as const;
+
+  return chosen.map((peak, order) => {
+    const near = milestones.find((item) => Math.abs(item.index - peak.index) <= 2);
+    const useReal = Boolean(near) && order % 3 !== 2;
+    const sketch = useReal
+      ? near!.sketch
+      : MAP_FANCY[(order * 3 + seed) % MAP_FANCY.length]!;
+    const lit = useReal ? near!.lit : false;
+
+    const h1 = mapHash(seed, peak.index * 19 + (peak.side === "left" ? 2 : 7));
+    const h2 = mapHash(seed + 13, peak.index * 41 + order * 17);
+    const h3 = mapHash(seed + 37, order * 11 + sketch.id.length * 9);
+
+    const edge =
+      peak.side === "left" ? 12 + (1 - peak.depth) * 10 : 88 - (1 - peak.depth) * 10;
+    const left = edge + (h1 - 0.5) * 5;
+    const sizeRem = sizeTier[order % sizeTier.length]! + (h2 - 0.5) * 0.7;
+    const towardPath = peak.side === "left" ? 1 : -1;
+    const rotateDeg = towardPath * (8 + h3 * 14) + (h1 - 0.5) * 10;
+    const opacity = lit ? 0.48 : useReal ? 0.17 : 0.12 + h2 * 0.08;
+
+    return {
+      key: `pocket-${peak.side}-${peak.index.toFixed(2)}-${sketch.id}-${order}`,
+      sketch,
+      lit,
+      left,
+      topRem: peak.index * ROW_REM + ROW_REM / 2 + (h2 - 0.5) * 0.85,
+      sizeRem,
+      rotateDeg,
+      opacity,
+    };
+  });
+}
+
+/** Catmull-Rom z miękkim napięciem — okrągłe łuki, bez ostrych zakrętów. */
+function smoothPath(points: readonly { x: number; y: number }[]): string {
+  if (points.length === 0) return "";
+  const first = points[0]!;
+  let d = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    // /4.5 zamiast /6 → dłuższe, łagodniejsze uchwyty Béziera
+    const c1x = p1.x + (p2.x - p0.x) / 4.5;
+    const c1y = p1.y + (p2.y - p0.y) / 4.5;
+    const c2x = p2.x - (p3.x - p1.x) / 4.5;
+    const c2y = p2.y - (p3.y - p1.y) / 4.5;
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
 }
 
 function continueTarget(current: number, cleared: readonly number[]): number {
   const peak = cleared.length > 0 ? Math.max(...cleared) : 0;
   const next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
-  if (current >= 1 && current <= CAMPAIGN_LEVELS && isLevelPlayable(current, cleared)) {
+  if (
+    current >= 1 &&
+    current <= CAMPAIGN_LEVELS &&
+    (current === 1 || cleared.includes(current) || current === peak + 1)
+  ) {
     return current;
   }
   return next;
@@ -98,9 +409,9 @@ export function LevelMap({
       const nodeRect = node.getBoundingClientRect();
       const scrollerRect = scroller.getBoundingClientRect();
       const top =
-        scroller.scrollTop + (nodeRect.top - scrollerRect.top) - scroller.clientHeight * 0.35;
+        scroller.scrollTop + (nodeRect.top - scrollerRect.top) - scroller.clientHeight * 0.38;
       scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    }, 60);
+    }, 80);
     return () => window.clearTimeout(timer);
   }, [resume, focus.id]);
 
@@ -117,23 +428,13 @@ export function LevelMap({
         onBack={onBack}
       />
 
-      <button
-        type="button"
-        onClick={() => onPick(resume)}
-        className="ui-panel-active mt-4 flex h-[3.6rem] w-full items-center justify-between rounded-[1.15rem] border px-4 backdrop-blur-md active:scale-[0.98]"
-      >
-        <span className="text-[15px] font-medium">{t("map_continue")}</span>
-        <span className="tabular-nums text-[1.35rem] font-light">
-          {t("level_word")} {resume}
-        </span>
-      </button>
-
-      <div ref={scrollRef} className="mt-4 min-h-0 flex-1 overflow-y-auto pb-3">
-        <div className="flex flex-col gap-6">
-          {REALMS.map((realm) => (
+      <div ref={scrollRef} className="mt-3.5 min-h-0 flex-1 overflow-y-auto pb-2">
+        <div className="flex flex-col gap-4">
+          {REALMS.map((realm, index) => (
             <RealmSection
               key={realm.id}
               realm={realm}
+              chapter={index}
               t={t}
               cleared={cleared}
               current={current}
@@ -148,11 +449,11 @@ export function LevelMap({
             type="button"
             disabled={!endlessOpen}
             onClick={onEndless}
-            className={`flex h-[4.4rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
+            className={`flex h-[4.2rem] flex-col items-center justify-center rounded-[1.25rem] border backdrop-blur-md ${
               endlessOpen ? "ui-panel-soft active:scale-[0.98]" : "ui-panel-locked opacity-45"
             }`}
           >
-            <span className="text-[1.15rem] font-light">{t("endless")}</span>
+            <span className="text-[1.1rem] font-light">{t("endless")}</span>
             <span className="ui-muted mt-1 text-[12px]">
               {endlessOpen
                 ? endlessBest > 0
@@ -163,12 +464,24 @@ export function LevelMap({
           </button>
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={() => onPick(resume)}
+        className="play-seal mt-2.5 flex h-[3.55rem] w-full items-center justify-center gap-3 rounded-[1.2rem] active:scale-[0.98]"
+      >
+        <span className="text-[15px] font-medium">{t("map_continue")}</span>
+        <span className="tabular-nums text-[1.25rem] font-light opacity-80">
+          {t("level_word")} {resume}
+        </span>
+      </button>
     </div>
   );
 }
 
 function RealmSection({
   realm,
+  chapter,
   t,
   cleared,
   current,
@@ -178,6 +491,7 @@ function RealmSection({
   onPick,
 }: {
   realm: CampaignRealm;
+  chapter: number;
   t: TranslateFn;
   cleared: number[];
   current: number;
@@ -189,170 +503,293 @@ function RealmSection({
   const theme = realmTheme(realm);
   const unlocked = isRealmUnlocked(realm, cleared, current);
   const progress = realmProgress(realm, cleared);
-  const complete = progress.done >= progress.total;
   const levels = useMemo(() => levelsInRealm(realm), [realm]);
-  const [expanded, setExpanded] = useState(focused || (unlocked && !complete));
+  const clearedSet = useMemo(() => new Set(cleared), [cleared]);
+  const peakCleared = useMemo(
+    () => (cleared.length > 0 ? Math.max(...cleared) : 0),
+    [cleared],
+  );
+  const [userToggle, setUserToggle] = useState<boolean | null>(null);
+  // Domyślnie tylko aktywna kraina — reszta zwinięta, mniej DOM przy starcie.
+  const expanded = userToggle ?? focused;
 
-  useEffect(() => {
-    if (focused) setExpanded(true);
-  }, [focused]);
+  const points = useMemo(
+    () => levels.map((_, index) => ({ x: pathX(index), y: pathY(index) })),
+    [levels],
+  );
+  const fullPath = useMemo(() => smoothPath(points), [points]);
+  const reachedIndex = useMemo(() => {
+    let last = -1;
+    for (let index = 0; index < levels.length; index++) {
+      const level = levels[index]!;
+      if (clearedSet.has(level) || level === resume) last = index;
+    }
+    return last;
+  }, [levels, clearedSet, resume]);
+  const litPath = useMemo(
+    () => (reachedIndex > 0 ? smoothPath(points.slice(0, reachedIndex + 1)) : ""),
+    [points, reachedIndex],
+  );
+  const ghostSpots = useMemo(
+    () => buildGhostSpots(levels, clearedSet, chapter + 1),
+    [levels, clearedSet, chapter],
+  );
 
-  const wash: CSSProperties = {
+  const stage: CSSProperties = {
     background: `
-      radial-gradient(110% 70% at 50% -10%, ${theme.sky.a} 0%, transparent 55%),
-      radial-gradient(80% 50% at 12% 88%, ${theme.sky.b}88 0%, transparent 60%),
-      radial-gradient(70% 45% at 92% 40%, ${theme.ember.a}55 0%, transparent 55%),
-      linear-gradient(180deg, ${theme.ink}cc 0%, ${theme.ink}99 100%)
+      radial-gradient(90% 40% at 50% 0%, ${theme.sky.a} 0%, transparent 70%),
+      radial-gradient(70% 35% at 10% 80%, ${theme.sky.b} 0%, transparent 65%),
+      linear-gradient(180deg, ${theme.ink}ee 0%, ${theme.ink}cc 100%)
     `,
-    borderColor: `${theme.ice}30`,
-    boxShadow: unlocked ? `inset 0 1px 0 ${theme.ice}18, 0 18px 40px rgba(0,0,0,0.28)` : undefined,
+    borderColor: `${theme.ice}28`,
+    boxShadow: unlocked
+      ? `inset 0 1px 0 ${theme.ice}14, 0 16px 36px rgba(0,0,0,0.32)`
+      : undefined,
+    contentVisibility: expanded ? "visible" : "auto",
+    containIntrinsicSize: expanded ? undefined : "0 5.5rem",
   };
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[1.35rem] border px-2.5 pb-3 pt-3.5 ${
-        unlocked ? "backdrop-blur-md" : "opacity-55"
-      }`}
-      style={wash}
+      className={`relative overflow-hidden rounded-[1.45rem] border ${unlocked ? "" : "opacity-50"}`}
+      style={stage}
     >
-      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-      <StarDust accent={theme.ice} />
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+
       <button
         type="button"
         onClick={() => {
-          if (unlocked) setExpanded((value) => !value);
+          if (unlocked) setUserToggle(!expanded);
         }}
         disabled={!unlocked}
-        className="relative z-[1] flex w-full items-start justify-between gap-3 px-1.5 text-left"
         aria-expanded={unlocked ? expanded : false}
+        className="relative z-[2] flex w-full items-center gap-3 px-3.5 pb-2.5 pt-3.5 text-left"
       >
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.28em]" style={{ color: theme.ice }}>
-            {t("map_path")} · {realm.from}–{realm.to}
-          </p>
-          <h2 className="mt-1 text-[1.35rem] font-light leading-none tracking-[-0.02em]">
+        <span
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border text-[0.95rem] font-light tracking-[0.04em]"
+          style={{
+            borderColor: `${theme.warm}66`,
+            background: `linear-gradient(145deg, ${theme.warm}33, ${theme.ink}aa)`,
+            color: theme.warm,
+            boxShadow: `0 0 16px ${theme.warm}28`,
+          }}
+        >
+          {ROMAN[chapter] ?? chapter + 1}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span
+            className="block text-[10px] uppercase tracking-[0.24em]"
+            style={{ color: `${theme.ice}88` }}
+          >
+            {t("map_chapter", { n: chapter + 1 })} · {realm.from}–{realm.to}
+          </span>
+          <span
+            className="mt-1 block text-[1.28rem] font-light leading-none tracking-[-0.02em]"
+            style={{ color: theme.ice }}
+          >
             {t(REALM_TITLE[realm.id])}
-          </h2>
-          <p className="ui-muted mt-1.5 text-[12px] leading-snug">{t(REALM_DETAIL[realm.id])}</p>
-        </div>
-        <div className="shrink-0 text-right">
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
           {unlocked ? (
-            <p className="tabular-nums text-[13px]" style={{ color: theme.ice }}>
+            <span className="block text-[12px] tabular-nums" style={{ color: theme.ice }}>
               {progress.done}/{progress.total}
-            </p>
+            </span>
           ) : (
-            <p className="ui-muted text-[11px] leading-snug">
+            <span className="ui-muted block max-w-[5.5rem] text-[10px] leading-snug">
               {t("map_realm_locked", { n: realm.from })}
-            </p>
+            </span>
           )}
-          <div className="mt-2 ml-auto h-1.5 w-16 overflow-hidden rounded-full bg-black/40">
-            <div
-              className="h-full rounded-full transition-[width] duration-500"
+          <span className="mt-1.5 ml-auto block h-1 w-14 overflow-hidden rounded-full bg-black/45">
+            <span
+              className="block h-full rounded-full transition-[width] duration-500"
               style={{
                 width: `${unlocked ? (progress.done / progress.total) * 100 : 0}%`,
                 background: `linear-gradient(90deg, ${theme.warm}, ${theme.ice})`,
-                boxShadow: `0 0 10px ${theme.warm}88`,
               }}
             />
-          </div>
-          {unlocked ? (
-            <p className="ui-muted mt-2 text-[10px] uppercase tracking-[0.18em]">
-              {expanded ? "▴" : "▾"}
-            </p>
-          ) : null}
-        </div>
+          </span>
+        </span>
+        {unlocked ? (
+          <span className="ui-muted ml-1 shrink-0 text-[11px]">{expanded ? "▴" : "▾"}</span>
+        ) : null}
       </button>
 
       {expanded && unlocked ? (
-        <div className="relative z-[1] mx-auto mt-2.5 max-w-[22rem] px-1 pt-0.5">
-          <PathTrail theme={theme} count={levels.length} />
-          <ol className="relative z-[1] flex flex-col gap-1.5 py-0.5">
-            {levels.map((level, index) => {
-              const clearedLevel = cleared.includes(level);
-              const open = isLevelPlayable(level, cleared);
-              const active = level === resume;
-              const star = isConstellationLevel(level);
-              const figure = star ? constellationForLevel(level) : null;
-              const left = pathLeftPercent(index);
-              const showName = Boolean(star && figure && open);
+        <div
+          className="relative w-full px-3 pb-4 pt-1"
+          style={{ minHeight: `${levels.length * ROW_REM}rem` }}
+        >
+          <FloorPattern theme={theme} />
+          <MapAtmosphere theme={theme} seed={chapter + 1} />
+          <StarField theme={theme} seed={chapter + 1} />
 
-              return (
-                <li key={level} className="relative h-[2.95rem]">
-                  <button
-                    type="button"
-                    disabled={!open}
-                    ref={(node) => {
-                      if (active) focusRef.current = node;
+          {ghostSpots.map((spot) => (
+            <FigureGhost
+              key={spot.key}
+              sketch={spot.sketch}
+              theme={theme}
+              lit={spot.lit}
+              sizeRem={spot.sizeRem}
+              rotateDeg={spot.rotateDeg}
+              opacity={spot.opacity}
+              style={{
+                left: `${spot.left}%`,
+                top: `${spot.topRem}rem`,
+              }}
+            />
+          ))}
+
+          <svg
+            className="pointer-events-none absolute inset-x-0 top-0 w-full"
+            style={{ height: `${levels.length * ROW_REM}rem` }}
+            viewBox={`0 0 100 ${levels.length * ROW_UNITS}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d={fullPath}
+              fill="none"
+              stroke="rgba(0,0,0,0.55)"
+              strokeWidth="12"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path
+              className="map-path-flow"
+              d={fullPath}
+              fill="none"
+              stroke={theme.ice}
+              strokeOpacity="0.2"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray="6 10"
+              vectorEffect="non-scaling-stroke"
+            />
+            {litPath ? (
+              <path
+                className="map-path-glow"
+                d={litPath}
+                fill="none"
+                stroke={theme.warm}
+                strokeWidth="3.5"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
+          </svg>
+
+          {levels.map((level, index) => {
+            const clearedLevel = clearedSet.has(level);
+            const open =
+              level >= 1 &&
+              level <= CAMPAIGN_LEVELS &&
+              (level === 1 || clearedLevel || level === peakCleared + 1);
+            const active = level === resume;
+            const star = isConstellationLevel(level);
+            const figure = star ? constellationForLevel(level) : null;
+
+            return (
+              <button
+                key={level}
+                type="button"
+                disabled={!open}
+                ref={(node) => {
+                  if (active) focusRef.current = node;
+                }}
+                onClick={() => {
+                  if (open) onPick(level);
+                }}
+                className={`absolute z-[3] -translate-x-1/2 -translate-y-1/2 rounded-full outline-none focus-visible:outline-none ${
+                  open ? "active:scale-[0.94]" : "cursor-default"
+                }`}
+                style={{
+                  left: `${pathX(index)}%`,
+                  top: `${index * ROW_REM + ROW_REM / 2}rem`,
+                }}
+                aria-label={
+                  figure
+                    ? `${t("level_word")} ${level} · ${figure.name}`
+                    : `${t("level_word")} ${level}`
+                }
+              >
+                {active ? (
+                  <span
+                    className="pointer-events-none absolute left-1/2 top-[calc(100%+0.55rem)] z-[4] -translate-x-1/2 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em]"
+                    style={{
+                      background: theme.warm,
+                      color: theme.ink,
+                      boxShadow: `0 8px 18px ${theme.warm}66`,
                     }}
-                    onClick={() => {
-                      if (open) onPick(level);
-                    }}
-                    className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 ${
-                      open ? "active:scale-[0.96]" : "cursor-default"
-                    }`}
-                    style={{ left: `${left}%` }}
-                    aria-label={
-                      star && figure
-                        ? `${t("level_word")} ${level} · ${figure.name}`
-                        : `${t("level_word")} ${level}`
-                    }
                   >
                     <span
-                      className={`relative grid place-items-center rounded-full border backdrop-blur-md transition-shadow ${
-                        star ? "h-[2.85rem] w-[2.85rem]" : "h-[2.45rem] w-[2.45rem]"
-                      } ${!open ? "opacity-45" : ""}`}
-                      style={nodeStyle(theme, { open, clearedLevel, active, star })}
+                      className="absolute bottom-full left-1/2 -translate-x-1/2 border-x-[5px] border-b-[6px] border-x-transparent"
+                      style={{ borderBottomColor: theme.warm }}
+                    />
+                    {t("map_here")}
+                  </span>
+                ) : null}
+                {active ? (
+                  <span
+                    className="map-pulse pointer-events-none absolute inset-[-10px] rounded-full border-2"
+                    style={{ borderColor: `${theme.warm}cc` }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <span
+                  className={`relative grid place-items-center rounded-full ${
+                    star ? "h-[3.15rem] w-[3.15rem]" : "h-[2.7rem] w-[2.7rem]"
+                  }`}
+                  style={nodeStyle(theme, { open, clearedLevel, active, star })}
+                >
+                  <span
+                    className={`relative z-[1] tabular-nums font-semibold leading-none ${
+                      star ? "text-[1rem]" : "text-[0.9rem]"
+                    }`}
+                    style={{ letterSpacing: "-0.02em" }}
+                  >
+                    {level}
+                  </span>
+                  {star ? (
+                    <span
+                      className="absolute -top-0.5 left-1/2 grid h-4 w-4 -translate-x-1/2 place-items-center rounded-full text-[8px] leading-none"
+                      style={{
+                        background: theme.warm,
+                        color: theme.ink,
+                        boxShadow: `0 0 8px ${theme.warm}88`,
+                      }}
                     >
-                      <span
-                        className={`font-medium tabular-nums leading-none ${
-                          star ? "text-[0.95rem]" : "text-[0.88rem]"
-                        }`}
-                        style={{ letterSpacing: "-0.02em" }}
-                      >
-                        {level}
-                      </span>
-                      {star ? (
-                        <span
-                          className="absolute -right-0.5 -top-0.5 grid h-[0.95rem] w-[0.95rem] place-items-center rounded-full text-[8px] leading-none"
-                          style={{
-                            background: theme.ink,
-                            color: theme.warm,
-                            boxShadow: `0 0 0 1px ${theme.warm}99`,
-                          }}
-                        >
-                          ✦
-                        </span>
-                      ) : null}
-                      {clearedLevel ? (
-                        <span
-                          className="absolute -bottom-0.5 -left-0.5 grid h-[0.95rem] w-[0.95rem] place-items-center rounded-full"
-                          style={{
-                            background: theme.ink,
-                            color: theme.ice,
-                            boxShadow: `0 0 0 1px ${theme.free}88`,
-                          }}
-                        >
-                          <CheckMark />
-                        </span>
-                      ) : null}
+                      ✦
                     </span>
-                    {showName && figure ? (
-                      <span
-                        className="pointer-events-none absolute left-1/2 top-[calc(100%+0.18rem)] z-[2] w-max max-w-[5.8rem] -translate-x-1/2 truncate rounded-full px-1.5 py-0.5 text-center text-[9px] leading-none"
-                        style={{
-                          color: theme.ice,
-                          background: `${theme.ink}dd`,
-                          border: `1px solid ${theme.ice}44`,
-                        }}
-                      >
-                        {figure.name}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                  ) : null}
+                  {clearedLevel && !active ? (
+                    <span
+                      className="absolute -bottom-0.5 left-1/2 grid h-4 w-4 -translate-x-1/2 place-items-center rounded-full"
+                      style={{
+                        background: theme.ice,
+                        color: theme.ink,
+                        boxShadow: `0 0 0 1px ${theme.ink}88`,
+                      }}
+                    >
+                      <CheckMark />
+                    </span>
+                  ) : null}
+                </span>
+                {figure && open ? (
+                  <span
+                    className="pointer-events-none absolute left-1/2 top-[calc(100%+0.35rem)] w-max max-w-[5.5rem] -translate-x-1/2 truncate rounded-full px-1.5 py-0.5 text-center text-[9px] leading-none"
+                    style={{
+                      color: theme.ice,
+                      background: `${theme.ink}cc`,
+                      border: `1px solid ${theme.ice}33`,
+                    }}
+                  >
+                    {figure.name}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </section>
@@ -363,135 +800,240 @@ function nodeStyle(
   theme: VisualTheme,
   state: { open: boolean; clearedLevel: boolean; active: boolean; star: boolean },
 ): CSSProperties {
+  const baseShadow = "0 10px 0 -2px rgba(0,0,0,0.35), 0 12px 22px rgba(0,0,0,0.35)";
   if (state.active) {
     return {
-      background: `linear-gradient(160deg, ${theme.warm}77, ${theme.ink}e0)`,
-      borderColor: theme.warm,
-      boxShadow: `0 0 0 3px ${theme.warm}33, 0 10px 26px ${theme.warm}55`,
-      color: theme.ice,
-    };
-  }
-  if (state.star && state.open) {
-    return {
-      background: `linear-gradient(160deg, ${theme.ice}40, ${theme.ink}e0)`,
-      borderColor: `${theme.warm}88`,
-      boxShadow: `0 0 16px ${theme.warm}40, 0 6px 18px ${theme.sky.a}`,
-      color: theme.ice,
+      background: `radial-gradient(circle at 32% 28%, #fff 0%, ${theme.ice} 28%, ${theme.warm} 78%)`,
+      border: `2.5px solid ${theme.ice}`,
+      // Tylko okrągła poświata — bez „ramki” 0 0 0 Npx, która na buttonie wyglądała jak kwadrat.
+      boxShadow: `0 0 22px ${theme.warm}99, 0 0 40px ${theme.warm}44, ${baseShadow}`,
+      color: theme.ink,
     };
   }
   if (state.clearedLevel) {
     return {
-      background: `linear-gradient(160deg, ${theme.free}44, ${theme.ink}e0)`,
-      borderColor: `${theme.free}77`,
-      boxShadow: `0 4px 14px ${theme.free}30`,
-      color: theme.ice,
+      background: `radial-gradient(circle at 32% 28%, ${theme.warm}ee 0%, ${theme.warm} 55%, ${theme.warm}88 100%)`,
+      border: `2px solid ${theme.warm}`,
+      boxShadow: `0 0 16px ${theme.warm}40, ${baseShadow}`,
+      color: theme.ink,
     };
   }
   if (state.open) {
     return {
-      background: `linear-gradient(160deg, rgba(255,255,255,0.14), ${theme.ink}d4)`,
-      borderColor: `${theme.ice}55`,
-      boxShadow: `0 5px 14px rgba(0,0,0,0.32)`,
+      background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.22) 0%, ${theme.ink}f2 62%)`,
+      border: `2px solid ${theme.ice}77`,
+      boxShadow: baseShadow,
       color: theme.ice,
     };
   }
   return {
-    background: "rgba(0,0,0,0.38)",
-    borderColor: "rgba(255,255,255,0.12)",
-    color: "rgba(255,255,255,0.48)",
+    background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.06), ${theme.ink}e8)`,
+    border: `2px solid ${state.star ? `${theme.warm}33` : "rgba(255,255,255,0.12)"}`,
+    boxShadow: "0 6px 0 -2px rgba(0,0,0,0.25)",
+    color: "rgba(255,255,255,0.4)",
   };
 }
 
-function PathTrail({ theme, count }: { theme: VisualTheme; count: number }) {
-  if (count < 2) return null;
-  const coords = Array.from({ length: count }, (_, index) => {
-    const x = pathLeftPercent(index);
-    const y = ((index + 0.5) / count) * 100;
-    return { x, y };
-  });
-  const points = coords.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(2)}`).join(" ");
+/** Mgławice + pył — spokojny ruch jak w rozgrywce, bez JS w klatce. */
+function MapAtmosphere({ theme, seed }: { theme: VisualTheme; seed: number }) {
+  const blobs = useMemo(() => {
+    const out: { left: number; top: number; size: number; delay: number; dur: number; warm: boolean }[] =
+      [];
+    let n = (seed * 2654435761) >>> 0;
+    for (let i = 0; i < 5; i++) {
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const left = 6 + (n % 780) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const top = 10 + (n % 820) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const size = 72 + (n % 90);
+      n = (n * 1664525 + 1013904223) >>> 0;
+      out.push({
+        left,
+        top,
+        size,
+        delay: (n % 50) / 10,
+        dur: 9 + (n % 70) / 10,
+        warm: i % 2 === 0,
+      });
+    }
+    return out;
+  }, [seed]);
+
+  const motes = useMemo(() => {
+    const out: { left: number; delay: number; dur: number; drift: number }[] = [];
+    let n = (seed * 2246822519) >>> 0;
+    for (let i = 0; i < 14; i++) {
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const left = 8 + (n % 840) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      out.push({
+        left,
+        delay: (n % 80) / 10,
+        dur: 7 + (n % 60) / 10,
+        drift: ((n % 40) - 20) / 10,
+      });
+    }
+    return out;
+  }, [seed]);
 
   return (
-    <svg
-      className="pointer-events-none absolute inset-x-0 inset-y-0 h-full w-full"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke={theme.ink}
-        strokeOpacity="0.55"
-        strokeWidth="7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={theme.ice}
-        strokeOpacity="0.28"
-        strokeWidth="3.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={theme.warm}
-        strokeOpacity="0.42"
-        strokeWidth="1.15"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray="2.5 6"
-        vectorEffect="non-scaling-stroke"
-      />
-      {coords.map((point, index) =>
-        index % 3 === 1 ? (
-          <circle
-            key={`bead-${index}`}
-            cx={point.x}
-            cy={point.y}
-            r="0.55"
-            fill={theme.warm}
-            fillOpacity="0.55"
-          />
-        ) : null,
-      )}
-    </svg>
-  );
-}
-
-function StarDust({ accent }: { accent: string }) {
-  const sparks = [
-    { left: "8%", top: "22%", size: 2, o: 0.35 },
-    { left: "18%", top: "68%", size: 1.5, o: 0.28 },
-    { left: "86%", top: "18%", size: 2, o: 0.32 },
-    { left: "92%", top: "58%", size: 1.5, o: 0.25 },
-    { left: "74%", top: "82%", size: 2, o: 0.3 },
-    { left: "28%", top: "40%", size: 1, o: 0.22 },
-  ];
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-      {sparks.map((spark, index) => (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+      {blobs.map((blob, index) => (
         <span
-          key={index}
-          className="absolute rounded-full"
+          key={`blob-${index}`}
+          className="map-drift absolute rounded-full"
           style={{
-            left: spark.left,
-            top: spark.top,
-            width: spark.size,
-            height: spark.size,
-            background: accent,
-            opacity: spark.o,
-            boxShadow: `0 0 6px ${accent}`,
+            left: `${blob.left}%`,
+            top: `${blob.top}%`,
+            width: blob.size,
+            height: blob.size,
+            marginLeft: -blob.size / 2,
+            marginTop: -blob.size / 2,
+            background: blob.warm
+              ? `radial-gradient(circle, ${theme.warm}33 0%, transparent 70%)`
+              : `radial-gradient(circle, ${theme.ice}2e 0%, transparent 70%)`,
+            animationDelay: `${blob.delay}s`,
+            animationDuration: `${blob.dur}s`,
+          }}
+        />
+      ))}
+      {motes.map((mote, index) => (
+        <span
+          key={`mote-${index}`}
+          className="map-float absolute bottom-[-4%] h-1 w-1 rounded-full"
+          style={{
+            left: `${mote.left}%`,
+            background: index % 3 === 0 ? theme.warm : theme.ice,
+            boxShadow: `0 0 6px ${index % 3 === 0 ? theme.warm : theme.ice}`,
+            animationDelay: `${mote.delay}s`,
+            animationDuration: `${mote.dur}s`,
+            ["--map-drift-x" as string]: `${mote.drift}rem`,
           }}
         />
       ))}
     </div>
+  );
+}
+
+/** Migające gwiazdy w tle krainy — czysty CSS, zero JS w klatce. */
+function StarField({ theme, seed }: { theme: VisualTheme; seed: number }) {
+  const stars = useMemo(() => {
+    const out: { left: number; top: number; size: number; delay: number; dur: number }[] = [];
+    let n = (seed * 1103515245 + 12345) >>> 0;
+    for (let i = 0; i < 18; i++) {
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const left = 6 + (n % 880) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const top = 6 + (n % 900) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const size = 1.1 + (n % 24) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const delay = (n % 40) / 10;
+      n = (n * 1664525 + 1013904223) >>> 0;
+      const dur = 2.4 + (n % 28) / 10;
+      out.push({ left, top, size, delay, dur });
+    }
+    return out;
+  }, [seed]);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+      {stars.map((star, index) => (
+        <span
+          key={index}
+          className="map-twinkle absolute rounded-full"
+          style={{
+            left: `${star.left}%`,
+            top: `${star.top}%`,
+            width: star.size,
+            height: star.size,
+            background: index % 3 === 0 ? theme.warm : theme.ice,
+            boxShadow: `0 0 ${star.size * 2.2}px ${index % 3 === 0 ? theme.warm : theme.ice}`,
+            animationDelay: `${star.delay}s`,
+            animationDuration: `${star.dur}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Romby na podłodze — spójny „park” krainy. */
+function FloorPattern({ theme }: { theme: VisualTheme }) {
+  return (
+    <svg
+      className="map-floor pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]"
+      aria-hidden="true"
+      preserveAspectRatio="xMidYMid slice"
+    >
+      <defs>
+        <pattern id={`floor-${theme.id}`} width="28" height="28" patternUnits="userSpaceOnUse">
+          <path
+            d="M14 0 L28 14 L14 28 L0 14 Z"
+            fill="none"
+            stroke={theme.ice}
+            strokeWidth="0.7"
+          />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#floor-${theme.id})`} />
+    </svg>
+  );
+}
+
+function FigureGhost({
+  sketch,
+  theme,
+  lit,
+  sizeRem,
+  rotateDeg,
+  opacity,
+  style,
+}: {
+  sketch: MapSketch;
+  theme: VisualTheme;
+  lit: boolean;
+  sizeRem: number;
+  rotateDeg: number;
+  opacity: number;
+  style: CSSProperties;
+}) {
+  const stroke = lit ? theme.warm : theme.ice;
+  return (
+    <svg
+      className="pointer-events-none absolute z-[1] -translate-x-1/2 -translate-y-1/2"
+      style={{
+        ...style,
+        width: `${sizeRem}rem`,
+        height: `${sizeRem}rem`,
+        opacity,
+        transform: `translate(-50%, -50%) rotate(${rotateDeg.toFixed(1)}deg)`,
+      }}
+      viewBox="-1.15 -1.15 2.3 2.3"
+      aria-hidden="true"
+    >
+      {sketch.edges.map((edge, index) => {
+        const a = sketch.solved[edge.a];
+        const b = sketch.solved[edge.b];
+        if (!a || !b) return null;
+        return (
+          <line
+            key={index}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke={stroke}
+            strokeWidth={0.05}
+            strokeLinecap="round"
+          />
+        );
+      })}
+      {sketch.solved.map((point, index) => (
+        <circle key={index} cx={point.x} cy={point.y} r={0.055} fill={lit ? theme.ice : stroke} />
+      ))}
+    </svg>
   );
 }
 
@@ -534,12 +1076,12 @@ function ScreenHeader({
 
 function CheckMark() {
   return (
-    <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true">
+    <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
       <path
         d="M2.2 5.2 4.2 7.2 7.8 3.2"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

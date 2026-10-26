@@ -367,7 +367,155 @@ body {
   }
 }
 
+.map-pulse {
+  animation: map-pulse 1.8s ease-out infinite;
+}
+
+@keyframes map-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+.map-twinkle {
+  animation: map-twinkle 3s ease-in-out infinite;
+  opacity: 0.25;
+}
+
+@keyframes map-twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.15);
+  }
+}
+
+.map-drift {
+  animation: map-drift 12s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes map-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.55;
+  }
+  40% {
+    transform: translate(6%, -5%) scale(1.08);
+    opacity: 0.85;
+  }
+  70% {
+    transform: translate(-4%, 4%) scale(0.96);
+    opacity: 0.65;
+  }
+}
+
+.map-float {
+  animation: map-float 9s linear infinite;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+@keyframes map-float {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  80% {
+    opacity: 0.25;
+  }
+  100% {
+    transform: translate3d(var(--map-drift-x, 0.6rem), -118%, 0);
+    opacity: 0;
+  }
+}
+
+.map-path-flow {
+  animation: map-path-flow 2.8s linear infinite;
+}
+
+@keyframes map-path-flow {
+  to {
+    stroke-dashoffset: -48;
+  }
+}
+
+.map-path-glow {
+  animation: map-path-glow 3.2s ease-in-out infinite;
+}
+
+@keyframes map-path-glow {
+  0%,
+  100% {
+    stroke-opacity: 0.78;
+    filter: drop-shadow(0 0 2px rgba(251, 146, 60, 0.25));
+  }
+  50% {
+    stroke-opacity: 1;
+    filter: drop-shadow(0 0 5px rgba(251, 146, 60, 0.55));
+  }
+}
+
+.map-floor {
+  animation: map-floor 14s ease-in-out infinite;
+}
+
+@keyframes map-floor {
+  0%,
+  100% {
+    opacity: 0.11;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.17;
+    transform: translate3d(0, -0.4%, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .map-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .map-twinkle {
+    animation: none;
+    opacity: 0.35;
+  }
+
+  .map-drift,
+  .map-float,
+  .map-path-flow,
+  .map-path-glow,
+  .map-floor {
+    animation: none;
+  }
+
+  .map-drift {
+    opacity: 0.45;
+  }
+
+  .map-float {
+    opacity: 0;
+  }
+
+  .map-floor {
+    opacity: 0.14;
+  }
+
   .play-seal {
     animation: none;
     box-shadow: 0 10px 28px rgba(125, 211, 252, 0.2);

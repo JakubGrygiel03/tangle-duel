@@ -91,6 +91,13 @@ export const MAX_NODES = 16;
 const MIN_DRAG_GAP = 22;
 const DEGENERATE_GAP = 12;
 const SPRING = 22;
+/**
+ * Min. odstęp węzeł ↔ niesąsiednia krawędź w układzie znormalizowanym (−1…1).
+ * Zapobiega „punktowi przyklejonemu do struny”, który wygląda przypadkowo.
+ */
+const MIN_NODE_EDGE_CLEARANCE = 0.078;
+/** Lekko łagodniejszy próg dla osadzenia planarnego (rozwiązanie). */
+const MIN_SOLVED_EDGE_CLEARANCE = 0.062;
 
 function edgeCap(nodes: number): number {
   return Math.max(0, 2 * nodes - 5);
@@ -434,6 +441,125 @@ function crossingCount(points: readonly Point[], edges: readonly GraphEdge[]): n
   return findIntersections(nodesFrom(points), edges).length;
 }
 
+/** Odległość punktu od odcinka (rzut na odcinek). */
+function distPointSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-12) return Math.hypot(point.x - a.x, point.y - a.y);
+  let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
+
+/** Najmniejszy odstęp między węzłem a krawędzią, której nie jest końcem. */
+function nodeEdgeClearance(points: readonly Point[], edges: readonly GraphEdge[]): number {
+  let min = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i];
+    if (!point) continue;
+    for (const edge of edges) {
+      if (edge.a === i || edge.b === i) continue;
+      const a = points[edge.a];
+      const b = points[edge.b];
+      if (!a || !b) continue;
+      const dist = distPointSegment(point, a, b);
+      if (dist < min) min = dist;
+    }
+  }
+  return Number.isFinite(min) ? min : Infinity;
+}
+
+/**
+ * Odsuwa węzły od niesąsiednich strun, zachowując przecięcia.
+ * Zawsze zwraca najlepszy osiągnięty układ (best-effort).
+ */
+function refineNodeEdgeClearance(
+  start: readonly Point[],
+  edges: readonly GraphEdge[],
+  minClearance: number,
+  keepCrossings: boolean,
+): Point[] {
+  const points = start.map((point) => ({ x: point.x, y: point.y }));
+  const baseCross = crossingCount(points, edges);
+  if (keepCrossings && baseCross < 1) return points;
+
+  let best = points.map((point) => ({ x: point.x, y: point.y }));
+  let bestClear = nodeEdgeClearance(best, edges);
+
+  for (let pass = 0; pass < 8; pass++) {
+    let worst = -1;
+    let worstDist = minClearance;
+    let pushX = 0;
+    let pushY = 0;
+
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      if (!point) continue;
+      for (const edge of edges) {
+        if (edge.a === i || edge.b === i) continue;
+        const a = points[edge.a];
+        const b = points[edge.b];
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 < 1e-12 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const cx = a.x + t * dx;
+        const cy = a.y + t * dy;
+        const ox = point.x - cx;
+        const oy = point.y - cy;
+        const dist = Math.hypot(ox, oy);
+        if (dist >= worstDist) continue;
+        worstDist = dist;
+        worst = i;
+        if (dist < 1e-6) {
+          const len = Math.hypot(dx, dy) || 1;
+          pushX = -dy / len;
+          pushY = dx / len;
+        } else {
+          pushX = ox / dist;
+          pushY = oy / dist;
+        }
+      }
+    }
+
+    if (worst < 0) break;
+
+    const origin = points[worst];
+    if (!origin) break;
+    const need = Math.min(0.08, minClearance - worstDist + 0.01);
+    const candidates: Point[] = [
+      inDisk({ x: origin.x + pushX * need, y: origin.y + pushY * need }),
+      inDisk({ x: origin.x - pushX * need * 0.6, y: origin.y - pushY * need * 0.6 }),
+      inDisk({ x: origin.x * 0.9, y: origin.y * 0.9 }),
+    ];
+
+    let moved = false;
+    for (const trial of candidates) {
+      if (!gapsOk(points, worst, trial)) continue;
+      const prev = points[worst]!;
+      points[worst] = trial;
+      if (keepCrossings && crossingCount(points, edges) < 1) {
+        points[worst] = prev;
+        continue;
+      }
+      moved = true;
+      break;
+    }
+    if (!moved) break;
+
+    const clear = nodeEdgeClearance(points, edges);
+    if (clear > bestClear) {
+      bestClear = clear;
+      best = points.map((point) => ({ x: point.x, y: point.y }));
+    }
+  }
+
+  return best;
+}
+
 function layoutFromOrder(order: readonly number[], inner: ReadonlySet<number>): Point[] | null {
   const count = order.length;
   const points: Point[] = new Array(count);
@@ -442,7 +568,10 @@ function layoutFromOrder(order: readonly number[], inner: ReadonlySet<number>): 
     const id = order[slot];
     if (id === undefined || id < 0) return null;
     const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2;
-    const radius = inner.has(id) ? 0.4 + (slot % 3) * 0.05 : 0.92;
+    // Różne promienie na pierścieniu — cięciwy nie ocierają sąsiednich węzłów.
+    const radius = inner.has(id)
+      ? 0.34 + (slot % 3) * 0.07
+      : 0.76 + (slot % 3) * 0.09;
     points[id] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   }
 
@@ -518,11 +647,18 @@ function tanglePoints(
   const ceiling = minCrossings + Math.max(1, Math.round(minCrossings * 0.3));
   let bestPoints = points;
   let bestScore = score;
-  let bestRank = crossRank(score, minCrossings);
+  let bestClear = nodeEdgeClearance(points, edges);
+  let bestRank = tangleRank(score, minCrossings, bestClear);
   const swaps = count * 48;
 
   for (let step = 0; step < swaps; step++) {
-    if (score >= minCrossings && score <= ceiling) break;
+    if (
+      score >= minCrossings &&
+      score <= ceiling &&
+      bestClear >= MIN_NODE_EDGE_CLEARANCE
+    ) {
+      break;
+    }
     const left = Math.floor(rnd() * count);
     const right = Math.floor(rnd() * count);
     if (left === right) continue;
@@ -534,12 +670,14 @@ function tanglePoints(
 
     const trial = layoutFromOrder(order, inner);
     const next = trial ? crossingCount(trial, edges) : -1;
-    const nextRank = crossRank(next, minCrossings);
+    const nextClear = trial ? nodeEdgeClearance(trial, edges) : 0;
+    const nextRank = tangleRank(next, minCrossings, nextClear);
     if (trial && next >= 1 && nextRank < bestRank) {
       points = trial;
       score = next;
       bestPoints = trial;
       bestScore = next;
+      bestClear = nextClear;
       bestRank = nextRank;
     } else {
       order[left] = leftId;
@@ -548,13 +686,30 @@ function tanglePoints(
   }
 
   if (bestScore < 1) return null;
-  return { points: bestPoints, crossings: bestScore };
+  const refined = refineNodeEdgeClearance(
+    bestPoints,
+    edges,
+    MIN_NODE_EDGE_CLEARANCE,
+    true,
+  );
+  const finalCross = crossingCount(refined, edges);
+  if (finalCross < 1) return { points: bestPoints, crossings: bestScore };
+  return { points: refined, crossings: finalCross };
 }
 
 /** Im bliżej progu poziomu, tym lepiej. Lekka kara za zejście poniżej progu. */
 function crossRank(count: number, target: number): number {
   if (count < 1) return 10_000;
   return Math.abs(count - target) + (count < target ? 2 : 0);
+}
+
+/** Ranking splątania + kara za węzły przyklejone do niesąsiednich strun. */
+function tangleRank(count: number, target: number, clearance: number): number {
+  const base = crossRank(count, target);
+  if (clearance >= MIN_NODE_EDGE_CLEARANCE) {
+    return base - Math.min(1.2, (clearance - MIN_NODE_EDGE_CLEARANCE) * 4);
+  }
+  return base + 12 + (MIN_NODE_EDGE_CLEARANCE - clearance) * 80;
 }
 
 function targetCrossings(level: number, variant: PuzzleVariant): number {
@@ -590,13 +745,20 @@ function scrambleOnCircle(
   shuffleIds(order, rnd);
   const onRing = order.map((_, slot) => {
     const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2 + (rnd() - 0.5) * 0.08;
-    return { x: Math.cos(angle) * 0.92, y: Math.sin(angle) * 0.92 };
+    const radius = 0.76 + (slot % 3) * 0.09 + (rnd() - 0.5) * 0.02;
+    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
   const placed: Point[] = Array.from({ length: count }, () => ({ x: 0, y: 0 }));
   order.forEach((id, slot) => {
     placed[id] = onRing[slot]!;
   });
-  return { points: placed, crossings: crossingCount(placed, edges) };
+  const refined = refineNodeEdgeClearance(
+    placed,
+    edges,
+    MIN_NODE_EDGE_CLEARANCE * 0.88,
+    true,
+  );
+  return { points: refined, crossings: crossingCount(refined, edges) };
 }
 
 export function planLevel(
@@ -642,6 +804,8 @@ export function planLevel(
   addPlanarEdges(solved, edges, spec.extraEdges, rnd);
   if (!ensureDisjointPair(solved, edges)) return null;
   if (crosses(solved, edges)) return null;
+
+  if (nodeEdgeClearance(solved, edges) < MIN_SOLVED_EDGE_CLEARANCE) return null;
 
   const tangled = tanglePoints(solved, edges, spec.innerNodes, spec.minCrossings, rnd);
   if (!tangled) return null;
@@ -945,8 +1109,10 @@ function pickPlan(
   for (let attempt = 0; attempt < attempts; attempt++) {
     const plan = planLevel(level, seed + attempt * 7919, variant);
     if (!plan) continue;
-    const rank = crossRank(plan.crossings, target);
+    const clearance = nodeEdgeClearance(plan.tangled, plan.edges);
+    const rank = tangleRank(plan.crossings, target, clearance);
     const inBand = plan.crossings >= target && plan.crossings <= target + slack;
+    const clearOk = clearance >= MIN_NODE_EDGE_CLEARANCE * 0.85;
     if (variant === "generic" && inBand) {
       plan.minimumMoves = movesToUntangle(plan.solved, plan.tangled, plan.edges);
     }
@@ -959,7 +1125,7 @@ function pickPlan(
       best = plan;
       bestRank = score;
     }
-    if (inBand && movePenalty === 0) break;
+    if (inBand && movePenalty === 0 && clearOk) break;
   }
 
   return best;
@@ -987,9 +1153,21 @@ export function createGenericLevel(
 ): Graph {
   const level = Math.max(1, Math.floor(difficulty));
   const arena = computeArena(width, height, chrome);
-  const seed = Math.imul(level, 10007) + Math.imul(salt, 9176) + 42;
-  const plan = pickPlan(level, seed, "generic", 64) ?? fallbackPlan();
-  const graph = graphFromPlan(level, plan, arena);
+  // Mocniejsze mieszanie soli — kolejne clear'y / biegi nie zderzają się w ten sam seed.
+  const seed =
+    (Math.imul(level, 0x85ebca6b) ^
+      Math.imul(salt >>> 0, 0xc2b2ae35) ^
+      Math.imul(salt >>> 16 || 1, 0x27d4eb2d) ^
+      0x9e3779b9) >>>
+    0;
+  let plan = pickPlan(level, seed, "generic", 64);
+  if (!plan) {
+    // Nie wracaj do jednego fallbacku — spróbuj jeszcze innych soli.
+    for (let nudge = 1; nudge <= 8 && !plan; nudge++) {
+      plan = pickPlan(level, (seed + nudge * 0x9e3779b9) >>> 0, "generic", 24);
+    }
+  }
+  const graph = graphFromPlan(level, plan ?? fallbackPlan(), arena);
   graph.outline = undefined;
   graph.isConstellation = false;
   graph.constellationName = undefined;
@@ -997,7 +1175,10 @@ export function createGenericLevel(
   return graph;
 }
 
-/** Ten sam układ na obu urządzeniach w pojedynku. */
+/**
+ * Ten sam układ na obu urządzeniach (Daily / pojedynek).
+ * Zawsze generyczna łamigłówka — figury albumu tylko w kampanii.
+ */
 export function createLevelWithSeed(
   level: number,
   seed: number,
@@ -1006,8 +1187,13 @@ export function createLevelWithSeed(
   chrome?: ArenaChrome,
 ): Graph {
   const arena = computeArena(width, height, chrome);
-  const plan = pickPlan(level, seed >>> 0, "campaign", 32) ?? fallbackPlan();
-  return graphFromPlan(level, plan, arena);
+  const plan = pickPlan(level, seed >>> 0, "generic", 64) ?? fallbackPlan();
+  const graph = graphFromPlan(level, plan, arena);
+  graph.outline = undefined;
+  graph.isConstellation = false;
+  graph.constellationName = undefined;
+  graph.constellationId = undefined;
+  return graph;
 }
 
 export function fitGraph(graph: Graph, width: number, height: number, chrome?: ArenaChrome): void {

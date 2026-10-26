@@ -92,7 +92,35 @@ export const SOUND_PACKS: readonly SoundPack[] = [
   { id: "glass", name: "Szkło", detail: "Ksylofon kryształowy", price: 350 },
 ];
 
+/** @deprecated Użyj TRAIL_STYLES — zostawione dla starych odwołań. */
 export const TRAIL_PRICE = 200;
+
+export type TrailId = "dust" | "ember" | "comet" | "aurora" | "spark" | "ribbon";
+
+export type TrailStyle = {
+  id: TrailId;
+  name: string;
+  detail: string;
+  price: number;
+};
+
+/** Efekty śladu za przeciąganym kryształem. */
+export const TRAIL_STYLES: readonly TrailStyle[] = [
+  { id: "dust", name: "Pył światła", detail: "Delikatne drobinki za kryształem", price: 200 },
+  { id: "ember", name: "Żar", detail: "Ciepłe iskry bursztynu", price: 250 },
+  { id: "comet", name: "Kometa", detail: "Długa smuga jak ogon komety", price: 300 },
+  { id: "aurora", name: "Zorza", detail: "Miękka wstęga lodowego światła", price: 320 },
+  { id: "spark", name: "Iskra", detail: "Ostre błyski przy każdym ruchu", price: 280 },
+  { id: "ribbon", name: "Wstęga", detail: "Płynna linia za palcem", price: 350 },
+];
+
+export function trailStyleById(id: string | null | undefined): TrailStyle {
+  return TRAIL_STYLES.find((style) => style.id === id) ?? TRAIL_STYLES[0]!;
+}
+
+export function isTrailId(id: string): id is TrailId {
+  return TRAIL_STYLES.some((style) => style.id === id);
+}
 
 export type CrystalPackId = "small" | "medium" | "large";
 
@@ -104,18 +132,18 @@ export type CrystalPack = {
 };
 
 export const CRYSTAL_PACKS: readonly CrystalPack[] = [
-  { id: "small", name: "Mała paczka", detail: "Szybki zastrzyk", crystals: 80 },
+  { id: "small", name: "Mała paczka", detail: "Szybki zastrzyk", crystals: 250 },
   {
     id: "medium",
     name: "Średnia paczka",
     detail: "Najczęściej wybierana",
-    crystals: 250,
+    crystals: 750,
   },
   {
     id: "large",
     name: "Duża paczka",
     detail: "Zapas na sklep",
-    crystals: 750,
+    crystals: 2000,
   },
 ];
 

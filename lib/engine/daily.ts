@@ -1,8 +1,10 @@
+import { isConstellationLevel } from "./constellations";
 import { CAMPAIGN_LEVELS } from "./graph";
 
 export type DailyChallenge = {
   /** Klucz dnia lokalnego YYYY-MM-DD. */
   day: string;
+  /** Trudność generycznej łamigłówki (nie poziom figury kampanii). */
   level: number;
   seed: number;
   reward: number;
@@ -60,15 +62,27 @@ function hashDay(day: string): number {
   return h >>> 0;
 }
 
+/** Trudność Daily w paśmie puzzle — omija numery figur albumu (co 6. poziom). */
+function dailyPuzzleDifficulty(hash: number): number {
+  const min = 14;
+  const max = Math.min(46, CAMPAIGN_LEVELS);
+  const span = max - min + 1;
+  for (let i = 0; i < span; i++) {
+    const level = min + ((hash + i) % span);
+    if (!isConstellationLevel(level)) return level;
+  }
+  return 19;
+}
+
 /** Jeden układ na dzień — ten sam dla wszystkich w tej strefie czasowej. */
 export function getDailyChallenge(date = new Date()): DailyChallenge {
   const day = localDayKey(date);
   const h = hashDay(day);
-  const level = 18 + (h % 28); // 18–45: średnio-trudne
+  const level = dailyPuzzleDifficulty(h);
   const seed = (h ^ Math.imul(level, 10007)) >>> 0;
   return {
     day,
-    level: Math.min(CAMPAIGN_LEVELS, Math.max(12, level)),
+    level,
     seed,
     reward: 40,
   };

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import { HarpSynth } from "@/lib/audio/synth";
-import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
+import type { CrystalShapeId, SoundPackId, TrailId } from "@/lib/engine/economy";
+import type { TrailMote } from "@/lib/engine/renderer";
 import {
   isConstellationLevel,
   isConstellationMatched,
@@ -59,8 +60,6 @@ export type ClearInfo = {
   round?: number;
 };
 
-type TrailMote = { x: number; y: number; life: number };
-
 type GameBoardProps = {
   level: number;
   muted: boolean;
@@ -68,10 +67,13 @@ type GameBoardProps = {
   theme?: VisualTheme;
   soundPack?: SoundPackId;
   crystalShape?: CrystalShapeId;
-  trail?: boolean;
+  /** Aktywny styl śladu — `null` / brak = wyłączony. */
+  trail?: TrailId | null;
   mode?: BoardMode;
   /** Wspólny seed pojedynku — ten sam układ na obu urządzeniach. */
   seed?: number;
+  /** Sól sesji z rodzica — nowa przy każdym starcie Błyskawicy / Mistrza / Echo. */
+  sessionSalt?: number;
   /** Startowy numer układu Echo / sól generowania. */
   startRound?: number;
   /** Po zaliczeniu nie przechodzi dalej (pojedynek / daily / rush koniec). */
@@ -104,9 +106,10 @@ export function GameBoard({
   theme,
   soundPack = "harp",
   crystalShape = "diamond",
-  trail = false,
+  trail = null,
   mode = "classic",
   seed,
+  sessionSalt: sessionSaltProp,
   startRound = 1,
   race = false,
   embed = false,
@@ -209,7 +212,15 @@ export function GameBoard({
     let rushCleared = 0;
     let rushEnded = false;
     let lastHudRush = -1;
-    let layoutSalt = Math.max(0, Math.floor(startRound) - 1);
+    // Sól z rodzica (każdy start meczu) albo lokalny fallback — potem bump przy każdym clearze.
+    const sessionSalt =
+      sessionSaltProp !== undefined
+        ? sessionSaltProp >>> 0
+        : (Math.floor(Math.random() * 0x7fffffff) ^
+            (Date.now() & 0xffffffff) ^
+            Math.imul(level, 7919)) >>> 0;
+    let boardIndex = Math.max(0, Math.floor(startRound) - 1);
+    let layoutSalt = (sessionSalt + Math.imul(boardIndex, 0x9e3779b9)) >>> 0;
     let echoRound = Math.max(1, Math.floor(startRound));
 
     const publishCrossings = (count: number) => {
@@ -296,6 +307,7 @@ export function GameBoard({
         crystalShape: shapeRef.current,
         echoReveal,
         trail: callbacks.current.trail ? trailMotes : undefined,
+        trailStyle: callbacks.current.trail ?? undefined,
       });
     };
 
@@ -308,6 +320,7 @@ export function GameBoard({
       const boardMode = callbacks.current.mode;
       const generic = boardMode === "rush" || boardMode === "master" || boardMode === "echo";
       const lockedSeed = seedRef.current;
+      // Seed (Daily / sync) i tryby eventowe = tylko łamigłówki; figury tylko w kampanii.
       const next = generic
         ? createGenericLevel(nextLevel, width, height, chrome, layoutSalt)
         : lockedSeed !== undefined
@@ -375,7 +388,35 @@ export function GameBoard({
         time += dt;
 
         if (callbacks.current.trail && trailMotes.length > 0) {
-          for (const mote of trailMotes) mote.life -= dt * 1.8;
+          const style = callbacks.current.trail;
+          const fade =
+            style === "comet" || style === "ribbon"
+              ? 1.15
+              : style === "aurora"
+                ? 1.35
+                : style === "ember"
+                  ? 1.55
+                  : style === "spark"
+                    ? 2.4
+                    : 1.8;
+          for (const mote of trailMotes) {
+            mote.life -= dt * fade;
+            mote.x += mote.vx * dt;
+            mote.y += mote.vy * dt;
+            if (style === "ember") {
+              mote.vy -= 18 * dt;
+              mote.vx *= 1 - 1.2 * dt;
+            } else if (style === "spark") {
+              mote.spin += dt * 6;
+            } else if (style === "aurora") {
+              mote.spin += dt * 1.2;
+              mote.vx *= 1 - 0.6 * dt;
+              mote.vy *= 1 - 0.6 * dt;
+            } else {
+              mote.vx *= 1 - 0.8 * dt;
+              mote.vy *= 1 - 0.8 * dt;
+            }
+          }
           trailMotes = trailMotes.filter((mote) => mote.life > 0.02);
         }
 
@@ -420,6 +461,8 @@ export function GameBoard({
             !solved;
 
           if (masterFail) {
+            boardIndex += 1;
+            layoutSalt = (sessionSalt + Math.imul(boardIndex, 0x9e3779b9)) >>> 0;
             mountLevel(levelNum, true);
             return;
           }
@@ -484,8 +527,9 @@ export function GameBoard({
             now - celebrateStart >= 700 &&
             !rushEnded
           ) {
+            boardIndex += 1;
+            layoutSalt = (sessionSalt + Math.imul(boardIndex, 0x9e3779b9)) >>> 0;
             const nextDifficulty = Math.min(RUSH_MAX_DIFFICULTY, rushCleared + 1);
-            if (nextDifficulty === levelNum) layoutSalt += 1;
             mountLevel(nextDifficulty, true);
           } else if (
             celebrating &&
@@ -494,10 +538,13 @@ export function GameBoard({
             callbacks.current.mode !== "rush"
           ) {
             if (callbacks.current.mode === "echo") {
-              layoutSalt += 1;
+              boardIndex += 1;
+              layoutSalt = (sessionSalt + Math.imul(boardIndex, 0x9e3779b9)) >>> 0;
               echoRound += 1;
               mountLevel(ECHO_DIFFICULTY, true);
             } else if (callbacks.current.mode === "master") {
+              boardIndex += 1;
+              layoutSalt = (sessionSalt + Math.imul(boardIndex, 0x9e3779b9)) >>> 0;
               mountLevel(Math.min(MASTER_MAX_DIFFICULTY, levelNum + 1), true);
             } else {
               mountLevel(levelNum + 1, true);
@@ -596,8 +643,38 @@ export function GameBoard({
       const target = dragPoint(node.id, point.x, point.y);
       node.tx = target.x;
       node.ty = target.y;
-      if (callbacks.current.trail && trailMotes.length < 48) {
-        trailMotes.push({ x: target.x, y: target.y, life: 1 });
+      const trailStyle = callbacks.current.trail;
+      if (trailStyle) {
+        const cap =
+          trailStyle === "ribbon" || trailStyle === "comet"
+            ? 64
+            : trailStyle === "spark"
+              ? 36
+              : 48;
+        if (trailMotes.length < cap) {
+          const ang = Math.random() * Math.PI * 2;
+          const burst =
+            trailStyle === "ember"
+              ? 28 + Math.random() * 36
+              : trailStyle === "spark"
+                ? 10 + Math.random() * 40
+                : trailStyle === "aurora"
+                  ? 8 + Math.random() * 18
+                  : 4 + Math.random() * 12;
+          const count =
+            trailStyle === "spark" ? 2 : trailStyle === "ember" ? 2 : 1;
+          for (let n = 0; n < count && trailMotes.length < cap; n++) {
+            const a = ang + n * 0.9;
+            trailMotes.push({
+              x: target.x + (Math.random() - 0.5) * 3,
+              y: target.y + (Math.random() - 0.5) * 3,
+              life: trailStyle === "comet" || trailStyle === "ribbon" ? 1.15 : 1,
+              vx: Math.cos(a) * burst * (0.35 + Math.random()),
+              vy: Math.sin(a) * burst * (0.35 + Math.random()),
+              spin: Math.random() * Math.PI * 2,
+            });
+          }
+        }
       }
     };
 
@@ -715,12 +792,19 @@ export function GameBoard({
           ? t("mode_echo")
           : "Tangle Duel");
 
+  const leaveMode = mode === "rush" || mode === "master" || mode === "echo";
   const shellClass = embed
     ? "theme-chrome game-shell relative h-full w-full overflow-hidden"
     : "theme-chrome game-shell fixed inset-0 flex items-center justify-center overflow-hidden";
   const columnClass = embed
     ? "relative z-10 h-full w-full overflow-hidden"
     : "play-column z-10";
+
+  const exitPlay = (event: SyntheticEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onMenu();
+  };
 
   return (
     <div
@@ -739,25 +823,12 @@ export function GameBoard({
       >
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 block h-full w-full touch-none"
+          className="absolute inset-0 z-0 block h-full w-full touch-none"
           role="application"
           aria-label={t("board_aria")}
         />
 
-        <div className="pointer-events-none absolute inset-0">
-          {!hideChrome && (
-            <button
-              ref={menuRef}
-              type="button"
-              onClick={onMenu}
-              aria-label={t("back_menu")}
-              className="ui-chip pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border bg-black/35 backdrop-blur-md"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
-                <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
+        <div className="pointer-events-none absolute inset-0 z-20">
           {hideChrome && (
             <>
               <button
@@ -942,26 +1013,62 @@ export function GameBoard({
               {t("canvas_error")}
             </p>
           )}
-
-          {!hideChrome && (
-            <button
-              ref={muteRef}
-              type="button"
-              aria-pressed={muted}
-              aria-label={muted ? t("mute_on") : t("mute_off")}
-              onClick={() => {
-                const next = !muted;
-                onMuted(next);
-                synthRef.current?.unlock();
-                synthRef.current?.setMuted(next);
-              }}
-              className="ui-chip pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border bg-black/35 backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ui-ice)]"
-            >
-              <SpeakerIcon muted={muted} />
-            </button>
-          )}
         </div>
       </div>
+
+      {/* Chrome poza frame — poza preventDefault touch z canvasa, zawsze klikalne. */}
+      {!hideChrome && (
+        <div className="pointer-events-none absolute inset-0 z-50">
+          <button
+            ref={menuRef}
+            type="button"
+            onPointerDown={exitPlay}
+            onClick={exitPlay}
+            aria-label={t("back_menu")}
+            className="ui-chip pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-12 w-12 place-items-center rounded-full border bg-black/50 backdrop-blur-md"
+          >
+            {leaveMode ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+                <path
+                  d="M10 3 5 8l5 5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+                <path
+                  d="M3 4.5h10M3 8h10M3 11.5h10"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </button>
+          <button
+            ref={muteRef}
+            type="button"
+            aria-pressed={muted}
+            aria-label={muted ? t("mute_on") : t("mute_off")}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              const next = !muted;
+              onMuted(next);
+              synthRef.current?.unlock();
+              synthRef.current?.setMuted(next);
+            }}
+            className="ui-chip pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-12 w-12 place-items-center rounded-full border bg-black/50 backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ui-ice)]"
+          >
+            <SpeakerIcon muted={muted} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

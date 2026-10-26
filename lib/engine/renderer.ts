@@ -1,7 +1,16 @@
-import type { CrystalShapeId } from "./economy";
+import type { CrystalShapeId, TrailId } from "./economy";
 import type { Graph, GraphNode } from "./graph";
 import type { IntersectionHit } from "./intersections";
 import { getTheme, type VisualTheme } from "./themes";
+
+export type TrailMote = {
+  x: number;
+  y: number;
+  life: number;
+  vx: number;
+  vy: number;
+  spin: number;
+};
 
 export type DrawModel = {
   graph: Graph;
@@ -14,8 +23,9 @@ export type DrawModel = {
   crystalShape?: CrystalShapeId;
   /** Tryb Echo: struny widoczne tylko podczas sonaru. */
   echoReveal?: number;
-  /** Ślad pyłu za przeciąganym węzłem. */
-  trail?: readonly { x: number; y: number; life: number }[];
+  /** Ślad za przeciąganym węzłem. */
+  trail?: readonly TrailMote[];
+  trailStyle?: TrailId;
 };
 
 type Mote = {
@@ -56,7 +66,9 @@ export class BoardRenderer {
       this.drawSparks(ctx, hits, time);
       ctx.globalAlpha = prevAlpha;
     }
-    if (model.trail && model.trail.length > 0) this.drawTrail(ctx, model.trail);
+    if (model.trail && model.trail.length > 0) {
+      this.drawTrail(ctx, model.trail, model.trailStyle ?? "dust", time);
+    }
     this.drawCrystals(ctx, graph, hits, time, bloom);
     this.drawBloom(ctx, graph, bloom, width, height);
   }
@@ -107,16 +119,121 @@ export class BoardRenderer {
 
   private drawTrail(
     ctx: CanvasRenderingContext2D,
-    trail: readonly { x: number; y: number; life: number }[],
+    trail: readonly TrailMote[],
+    style: TrailId,
+    time: number,
   ): void {
     const theme = this.theme;
+    if (style === "ribbon" || style === "comet" || style === "aurora") {
+      this.drawTrailRibbon(ctx, trail, style, time);
+    }
     for (const mote of trail) {
       if (mote.life <= 0) continue;
+      const life = mote.life;
+      if (style === "ember") {
+        ctx.beginPath();
+        ctx.arc(mote.x, mote.y, 1.2 + life * 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${theme.moteWarm}, ${0.62 * life})`;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(mote.x + mote.vx * 0.15, mote.y + mote.vy * 0.15, 0.7 + life, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 220, 170, ${0.35 * life})`;
+        ctx.fill();
+        continue;
+      }
+      if (style === "spark") {
+        const len = 3 + life * 7;
+        const ang = mote.spin + time * 4;
+        ctx.save();
+        ctx.translate(mote.x, mote.y);
+        ctx.rotate(ang);
+        ctx.strokeStyle = `rgba(${theme.moteCool}, ${0.75 * life})`;
+        ctx.lineWidth = 1.1;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(-len, 0);
+        ctx.lineTo(len, 0);
+        ctx.moveTo(0, -len * 0.55);
+        ctx.lineTo(0, len * 0.55);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+      if (style === "aurora") {
+        ctx.beginPath();
+        ctx.ellipse(
+          mote.x,
+          mote.y,
+          2.2 + life * 4.5,
+          1.1 + life * 2.2,
+          mote.spin,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fillStyle = `rgba(${theme.moteCool}, ${0.28 * life})`;
+        ctx.fill();
+        continue;
+      }
+      if (style === "comet") {
+        ctx.beginPath();
+        ctx.arc(mote.x, mote.y, 1.4 + life * 2.8, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * life})`;
+        ctx.fill();
+        continue;
+      }
+      if (style === "ribbon") {
+        ctx.beginPath();
+        ctx.arc(mote.x, mote.y, 1.1 + life * 1.8, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${theme.moteCool}, ${0.4 * life})`;
+        ctx.fill();
+        continue;
+      }
+      // dust — domyślny pył
       ctx.beginPath();
-      ctx.arc(mote.x, mote.y, 1.6 + mote.life * 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${theme.moteCool}, ${0.55 * mote.life})`;
+      ctx.arc(mote.x, mote.y, 1.6 + life * 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${theme.moteCool}, ${0.55 * life})`;
       ctx.fill();
     }
+  }
+
+  private drawTrailRibbon(
+    ctx: CanvasRenderingContext2D,
+    trail: readonly TrailMote[],
+    style: TrailId,
+    _time: number,
+  ): void {
+    if (trail.length < 2) return;
+    const theme = this.theme;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1]!;
+      const b = trail[i]!;
+      const life = Math.min(a.life, b.life);
+      if (life <= 0.02) continue;
+      const width =
+        style === "comet"
+          ? 1.2 + life * 4.5
+          : style === "aurora"
+            ? 2.4 + life * 6.5
+            : 1.6 + life * 3.2;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      if (style === "ember") {
+        ctx.strokeStyle = `rgba(${theme.moteWarm}, ${0.35 * life})`;
+      } else if (style === "comet") {
+        ctx.strokeStyle = `rgba(255, 245, 220, ${0.42 * life})`;
+      } else if (style === "aurora") {
+        ctx.strokeStyle = `rgba(${theme.moteCool}, ${0.32 * life})`;
+      } else {
+        ctx.strokeStyle = `rgba(${theme.moteCool}, ${0.38 * life})`;
+      }
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private ensureMotes(): void {
