@@ -5,7 +5,11 @@ export type { LocaleId, LocalePreference, LocaleOption } from "./locales";
 export { LOCALE_OPTIONS, detectSystemLocale, isLocaleId, resolveLocale } from "./locales";
 export type { MessageKey } from "./messages";
 export type { PriceRegion } from "./pricing";
-export { crystalPackPriceLabel, resolvePriceRegion } from "./pricing";
+export {
+  crystalPackPriceLabel,
+  premiumUnlockPriceLabel,
+  resolvePriceRegion,
+} from "./pricing";
 
 export type TranslateFn = (key: MessageKey, vars?: Record<string, string | number>) => string;
 

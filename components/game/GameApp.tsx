@@ -23,6 +23,7 @@ import {
   resetProgress,
   subscribeSave,
   updateSave,
+  withPremiumUnlock,
   type GameSave,
 } from "@/components/game/storage";
 import { TutorialBoard } from "@/components/game/TutorialBoard";
@@ -63,6 +64,7 @@ import {
   LOCALE_OPTIONS,
   crystalPackPriceLabel,
   localeNativeName,
+  premiumUnlockPriceLabel,
   resolveLocale,
   translatorForPreference,
   type LocalePreference,
@@ -535,7 +537,19 @@ export function GameApp() {
                   }));
                   setUnlockNote(t("pack_claimed", { n: pack.crystals, name }));
                 }}
+                onBuyPremium={() => {
+                  if (save.premiumUnlocked) {
+                    setUnlockNote(t("premium_unlocked"));
+                    return;
+                  }
+                  updateSave((current) => withPremiumUnlock(current));
+                  setUnlockNote(t("premium_unlocked"));
+                }}
                 onWatchAd={() => {
+                  if (save.premiumUnlocked) {
+                    setUnlockNote(t("remove_ads_owned"));
+                    return;
+                  }
                   const now = Date.now();
                   let ok = false;
                   updateSave((current) => {
@@ -1249,6 +1263,7 @@ function ShopScreen({
   onBuySound,
   onBuyTrail,
   onBuyPack,
+  onBuyPremium,
   onWatchAd,
 }: {
   t: TranslateFn;
@@ -1263,9 +1278,11 @@ function ShopScreen({
   onBuySound: (id: SoundPackId, price: number) => void;
   onBuyTrail: () => void;
   onBuyPack: (id: CrystalPackId) => void;
+  onBuyPremium: () => void;
   onWatchAd: () => void;
 }) {
   const adReady = Date.now() - save.lastAdAt >= AD_COOLDOWN_MS;
+  const premiumPrice = premiumUnlockPriceLabel(save.locale);
   const tile =
     "ui-panel flex min-h-[4.75rem] items-center gap-3.5 rounded-[1.15rem] border px-3.5 py-3 text-left backdrop-blur-md";
 
@@ -1278,16 +1295,20 @@ function ShopScreen({
         onBack={onBack}
       />
       <div className="mt-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-4">
-        <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_earn")}</p>
-        <button type="button" onClick={onWatchAd} className={`${tile} justify-between`}>
-          <span>
-            <span className="block text-[17px] font-normal">{t("shop_watch_ad")}</span>
-            <span className="ui-muted mt-1 block text-[13px]">
-              {adReady ? t("shop_ad_ready", { n: AD_CRYSTAL_REWARD }) : t("shop_ad_wait")}
-            </span>
-          </span>
-          <span className="ui-accent text-[1.35rem] font-light tabular-nums">+{AD_CRYSTAL_REWARD}</span>
-        </button>
+        {!save.premiumUnlocked && (
+          <>
+            <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_earn")}</p>
+            <button type="button" onClick={onWatchAd} className={`${tile} justify-between`}>
+              <span>
+                <span className="block text-[17px] font-normal">{t("shop_watch_ad")}</span>
+                <span className="ui-muted mt-1 block text-[13px]">
+                  {adReady ? t("shop_ad_ready", { n: AD_CRYSTAL_REWARD }) : t("shop_ad_wait")}
+                </span>
+              </span>
+              <span className="ui-accent text-[1.35rem] font-light tabular-nums">+{AD_CRYSTAL_REWARD}</span>
+            </button>
+          </>
+        )}
 
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_themes")}</p>
         <div className="flex flex-col gap-3">
@@ -1489,11 +1510,23 @@ function ShopScreen({
 
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_support")}</p>
         <div className="flex flex-col gap-3">
-          <SettingRow
-            label={t("remove_ads")}
-            detail={t("remove_ads_detail")}
-            onClick={() => onNote(t("payments_soon"))}
-          />
+          <button
+            type="button"
+            onClick={onBuyPremium}
+            className={`${tile} ${save.premiumUnlocked ? "ui-panel-active" : ""}`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[17px] font-normal">{t("remove_ads")}</span>
+              <span className="ui-muted mt-1 block text-[13px]">
+                {save.premiumUnlocked
+                  ? t("remove_ads_owned")
+                  : t("remove_ads_detail", { price: premiumPrice })}
+              </span>
+            </span>
+            <span className="ui-accent shrink-0 text-[14px] font-medium tabular-nums">
+              {save.premiumUnlocked ? t("shop_active") : premiumPrice}
+            </span>
+          </button>
         </div>
       </div>
     </div>

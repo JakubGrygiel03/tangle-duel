@@ -86,6 +86,8 @@ export type MessageKey =
   | "trail_buy"
   | "remove_ads"
   | "remove_ads_detail"
+  | "remove_ads_owned"
+  | "premium_unlocked"
   | "pack_small"
   | "pack_medium"
   | "pack_large"
@@ -217,8 +219,10 @@ const en: Dict = {
   trail_on: "On · tap to turn off",
   trail_off: "Off · tap to turn on",
   trail_buy: "Dust behind the dragged crystal",
-  remove_ads: "Remove ads",
-  remove_ads_detail: "Coming soon — one-time purchase",
+  remove_ads: "Unlock everything & remove ads",
+  remove_ads_detail: "Themes, shapes, sounds, trail — one-time {price}",
+  remove_ads_owned: "Everything unlocked · ads removed",
+  premium_unlocked: "Everything unlocked · ads removed",
   pack_small: "Small pack",
   pack_medium: "Medium pack",
   pack_large: "Large pack",
@@ -351,8 +355,10 @@ const pl: Dict = {
   trail_on: "Włączony · stuknij, by wyłączyć",
   trail_off: "Wyłączony · stuknij, by włączyć",
   trail_buy: "Pył za przeciąganym kryształem",
-  remove_ads: "Usuń reklamy",
-  remove_ads_detail: "Wkrótce — jednorazowy zakup",
+  remove_ads: "Odblokuj wszystko i usuń reklamy",
+  remove_ads_detail: "Motywy, kształty, brzmienia, ślad — jednorazowo {price}",
+  remove_ads_owned: "Wszystko odblokowane · bez reklam",
+  premium_unlocked: "Wszystko odblokowane · bez reklam",
   pack_small: "Mała paczka",
   pack_medium: "Średnia paczka",
   pack_large: "Duża paczka",
@@ -485,8 +491,10 @@ const de: Dict = {
   trail_on: "An · tippen zum Aus",
   trail_off: "Aus · tippen zum An",
   trail_buy: "Staub hinter dem Kristall",
-  remove_ads: "Werbung entfernen",
-  remove_ads_detail: "Bald — einmaliger Kauf",
+  remove_ads: "Alles freischalten und Werbung entfernen",
+  remove_ads_detail: "Themes, Formen, Klänge, Spur — einmalig {price}",
+  remove_ads_owned: "Alles freigeschaltet · keine Werbung",
+  premium_unlocked: "Alles freigeschaltet · keine Werbung",
   pack_small: "Kleines Paket",
   pack_medium: "Mittleres Paket",
   pack_large: "Großes Paket",
@@ -619,8 +627,10 @@ const es: Dict = {
   trail_on: "Activo · toca para apagar",
   trail_off: "Apagado · toca para encender",
   trail_buy: "Polvo tras el cristal arrastrado",
-  remove_ads: "Quitar anuncios",
-  remove_ads_detail: "Pronto — compra única",
+  remove_ads: "Desbloquear todo y quitar anuncios",
+  remove_ads_detail: "Temas, formas, sonidos, rastro — una vez {price}",
+  remove_ads_owned: "Todo desbloqueado · sin anuncios",
+  premium_unlocked: "Todo desbloqueado · sin anuncios",
   pack_small: "Paquete pequeño",
   pack_medium: "Paquete mediano",
   pack_large: "Paquete grande",
@@ -753,8 +763,10 @@ const ru: Dict = {
   trail_on: "Вкл. · нажмите, чтобы выкл.",
   trail_off: "Выкл. · нажмите, чтобы вкл.",
   trail_buy: "Пыль за перетаскиваемым кристаллом",
-  remove_ads: "Убрать рекламу",
-  remove_ads_detail: "Скоро — разовая покупка",
+  remove_ads: "Открыть всё и убрать рекламу",
+  remove_ads_detail: "Темы, формы, звуки, след — разово {price}",
+  remove_ads_owned: "Всё открыто · без рекламы",
+  premium_unlocked: "Всё открыто · без рекламы",
   pack_small: "Малый набор",
   pack_medium: "Средний набор",
   pack_large: "Большой набор",

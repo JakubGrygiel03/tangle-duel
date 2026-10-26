@@ -57,11 +57,24 @@ const PACK_LABELS: Record<PriceRegion, Record<CrystalPackId, string>> = {
   eur: { small: "1 €", medium: "2 €", large: "4 €" },
   usd: { small: "$1", medium: "$2", large: "$4" },
   gbp: { small: "£1", medium: "£2", large: "£4" },
-  pln: { small: "4 zł", medium: "8 zł", large: "16 zł" },
+  /** Polska — historyczne 2 / 5 / 10 zł (nie 1:2:4). */
+  pln: { small: "2 zł", medium: "5 zł", large: "10 zł" },
   rub: { small: "100 ₽", medium: "200 ₽", large: "400 ₽" },
   aud: { small: "A$1.50", medium: "A$3", large: "A$6" },
   cad: { small: "C$1.50", medium: "C$3", large: "C$6" },
   mxn: { small: "MX$20", medium: "MX$40", large: "MX$80" },
+};
+
+/** Usuń reklamy + odblokuj cały katalog (motywy, kształty, brzmienia, ślad). */
+const PREMIUM_LABELS: Record<PriceRegion, string> = {
+  eur: "10 €",
+  usd: "$10",
+  gbp: "£9",
+  pln: "20 zł",
+  rub: "1000 ₽",
+  aud: "A$15",
+  cad: "C$14",
+  mxn: "MX$200",
 };
 
 function systemTags(
@@ -146,4 +159,12 @@ export function crystalPackPriceLabel(
 ): string {
   const region = resolvePriceRegion(preference, languages);
   return PACK_LABELS[region][packId];
+}
+
+export function premiumUnlockPriceLabel(
+  preference: LocalePreference | null | undefined,
+  languages?: readonly string[],
+): string {
+  const region = resolvePriceRegion(preference, languages);
+  return PREMIUM_LABELS[region];
 }

@@ -1,8 +1,10 @@
 import {
   constellationBonus,
+  CRYSTAL_SHAPES,
   crystalShapeById,
   crystalsForLevel,
   PERFECT_MOVE_BONUS,
+  SOUND_PACKS,
   soundPackById,
   type CrystalShapeId,
   type SoundPackId,
@@ -13,7 +15,7 @@ import {
   constellationForLevel,
 } from "@/lib/engine/constellations";
 import { CAMPAIGN_LEVELS } from "@/lib/engine/graph";
-import { computeUnlockedThemes, getTheme, type ThemeId } from "@/lib/engine/themes";
+import { computeUnlockedThemes, getTheme, THEMES, type ThemeId } from "@/lib/engine/themes";
 import { isLocaleId, type LocalePreference } from "@/lib/i18n";
 
 export type GameSave = {
@@ -53,6 +55,8 @@ export type GameSave = {
   /** Kształt węzłów na planszy. */
   crystalShape: CrystalShapeId;
   purchasedShapes: CrystalShapeId[];
+  /** Jednorazowy zakup: bez reklam + pełny katalog sklepu. */
+  premiumUnlocked: boolean;
 };
 
 const KEY = "tangle-duel-save";
@@ -85,7 +89,28 @@ export const defaultSave = (): GameSave => ({
   trailEnabled: false,
   crystalShape: "diamond",
   purchasedShapes: [],
+  premiumUnlocked: false,
 });
+
+/** Odblokuj cały katalog sklepu i wyłącz reklamy (zakup premium). */
+export function withPremiumUnlock(current: GameSave): GameSave {
+  const purchasedThemes = [...new Set([...current.purchasedThemes, ...THEMES.map((item) => item.id)])];
+  const purchasedShapes = [
+    ...new Set([...current.purchasedShapes, ...CRYSTAL_SHAPES.map((item) => item.id)]),
+  ];
+  const purchasedSounds = [
+    ...new Set([...current.purchasedSounds, ...SOUND_PACKS.map((item) => item.id)]),
+  ];
+  return {
+    ...current,
+    premiumUnlocked: true,
+    purchasedThemes,
+    purchasedShapes,
+    purchasedSounds,
+    trailOwned: true,
+    trailEnabled: current.trailOwned ? current.trailEnabled : true,
+  };
+}
 
 function sanitizeCampaign(levels: unknown): number[] {
   if (!Array.isArray(levels)) return [];
@@ -233,7 +258,7 @@ export function loadSave(): GameSave {
         ? crystalShape
         : "diamond";
 
-    return {
+    const base: GameSave = {
       muted: parsed.muted === true,
       haptics: parsed.haptics !== false,
       locale: sanitizeLocale(parsed.locale),
@@ -255,7 +280,9 @@ export function loadSave(): GameSave {
       trailEnabled,
       crystalShape: ownedShape,
       purchasedShapes,
+      premiumUnlocked: parsed.premiumUnlocked === true,
     };
+    return base.premiumUnlocked ? withPremiumUnlock(base) : base;
   } catch {
     return defaultSave();
   }
