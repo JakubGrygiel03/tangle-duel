@@ -28,7 +28,6 @@ import {
 import { TutorialBoard } from "@/components/game/TutorialBoard";
 import {
   CONSTELLATIONS,
-  constellationKindLabel,
   isConstellationLevel,
   type ConstellationId,
 } from "@/lib/engine/constellations";
@@ -56,11 +55,18 @@ import {
   isThemeUnlocked,
   THEMES,
   themeChromeVars,
-  themeUnlockRequirement,
   themesUnlockedByClear,
   type ThemeId,
   type VisualTheme,
 } from "@/lib/engine/themes";
+import {
+  LOCALE_OPTIONS,
+  localeNativeName,
+  resolveLocale,
+  translatorForPreference,
+  type LocalePreference,
+  type TranslateFn,
+} from "@/lib/i18n";
 
 type Screen =
   | "tutorial"
@@ -81,6 +87,8 @@ const STUDIO_FADE_MS = 1300;
 export function GameApp() {
   const save = useSyncExternalStore(subscribeSave, readSave, readServerSave);
   const theme = getTheme(save.themeId);
+  const { t } = translatorForPreference(save.locale);
+  const systemLocale = resolveLocale("auto");
   const daily = getDailyChallenge();
   const [screen, setScreen] = useState<Screen | "auto">("auto");
   const [studio, setStudio] = useState<"show" | "leave" | "done">("show");
@@ -216,20 +224,21 @@ export function GameApp() {
       const challenge = getDailyChallenge();
       updateSave((current) => {
         if (current.dailyClaimedOn === challenge.day) {
-          note = "Daily już zaliczone dziś";
+          note = t("daily_already");
           return current;
         }
         const perfectExtra = info.perfect ? PERFECT_MOVE_BONUS : 0;
         const streak = nextDailyStreak(current.dailyClaimedOn, current.dailyStreak, challenge.day);
+        const crystals = challenge.reward + perfectExtra;
         note =
           streak > 1
-            ? `Daily · seria ${streak} · +${challenge.reward + perfectExtra}`
-            : `Daily! +${challenge.reward + perfectExtra} kryształów`;
+            ? t("daily_streak_reward", { n: streak, crystals })
+            : t("daily_reward", { n: crystals });
         return {
           ...current,
           dailyClaimedOn: challenge.day,
           dailyStreak: streak,
-          crystals: current.crystals + challenge.reward + perfectExtra,
+          crystals: current.crystals + crystals,
         };
       });
       if (note) setUnlockNote(note);
@@ -250,13 +259,11 @@ export function GameApp() {
       if (reward.constellation) {
         const figure = CONSTELLATIONS.find((item) => item.id === reward.constellation);
         note = figure
-          ? `Album: ${figure.name} · +${reward.crystals}`
-          : `+${reward.crystals} kryształów`;
-      } else if (unlocked[0]) note = `Odblokowano: ${unlocked[0]!.name}`;
+          ? t("album_unlock", { name: figure.name, n: reward.crystals })
+          : t("shop_ad_ready", { n: reward.crystals });
+      } else if (unlocked[0]) note = `${t("shop_unlocked")}: ${unlocked[0]!.name}`;
       else if (!reward.alreadyCleared && reward.crystals > 0) {
-        note = info.perfect
-          ? `+${reward.crystals} · idealny ruch`
-          : `+${reward.crystals} kryształów`;
+        note = t("shop_ad_ready", { n: reward.crystals });
       }
       return save;
     });
@@ -275,16 +282,16 @@ export function GameApp() {
             <ThemeBackdrop theme={theme} />
           </div>
           <div className="play-column z-10 flex flex-col items-center justify-center px-6 text-center">
-            <p className="ui-kicker text-[11px] uppercase tracking-[0.32em]">Błyskawica</p>
-            <h2 className="mt-3 text-[2.4rem] font-light tracking-[-0.03em]">Koniec biegu</h2>
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.32em]">{t("mode_rush")}</p>
+            <h2 className="mt-3 text-[2.4rem] font-light tracking-[-0.03em]">{t("rush_over")}</h2>
             <p className="ui-accent mt-4 text-[3.5rem] font-light tabular-nums">{rushResult}</p>
-            <p className="ui-muted mt-1 text-[14px]">układów z rzędu</p>
+            <p className="ui-muted mt-1 text-[14px]">{t("layouts_row")}</p>
             <button
               type="button"
               onClick={() => play(1, "rush")}
               className="play-seal mt-10 h-14 w-full max-w-xs rounded-[1.15rem] text-[16px] font-medium"
             >
-              Jeszcze raz
+              {t("rush_again")}
             </button>
             <button
               type="button"
@@ -294,7 +301,7 @@ export function GameApp() {
               }}
               className="ui-muted mt-3 h-12 w-full max-w-xs text-[14px]"
             >
-              Menu
+              {t("menu")}
             </button>
           </div>
         </div>
@@ -313,6 +320,7 @@ export function GameApp() {
           mode={boardMode}
           seed={playMode === "daily" ? dailySeed : undefined}
           race={playMode === "daily"}
+          t={t}
           constellationIntro={
             playMode !== "daily" &&
             playMode !== "rush" &&
@@ -343,6 +351,7 @@ export function GameApp() {
         soundPack={save.soundPack}
         crystalShape={save.crystalShape}
         trail={save.trailOwned && save.trailEnabled}
+        t={t}
         onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
         onBack={() => setScreen("menu")}
       />
@@ -389,6 +398,7 @@ export function GameApp() {
           <div className="relative z-20 flex h-full flex-col px-5 pt-[max(1.15rem,env(safe-area-inset-top))] pb-[max(1.1rem,env(safe-area-inset-bottom))]">
             {visible === "menu" && (
               <MainMenu
+                t={t}
                 level={save.level}
                 muted={save.muted}
                 crystals={save.crystals}
@@ -414,6 +424,7 @@ export function GameApp() {
             )}
             {visible === "modes" && (
               <ModesScreen
+                t={t}
                 onBack={() => setScreen("menu")}
                 onRush={() => play(1, "rush")}
                 onMaster={() => play(Math.min(save.level, CAMPAIGN_LEVELS) || 1, "master")}
@@ -422,6 +433,7 @@ export function GameApp() {
             )}
             {visible === "album" && (
               <AlbumScreen
+                t={t}
                 unlocked={save.constellations}
                 onBack={() => setScreen("menu")}
               />
@@ -431,6 +443,7 @@ export function GameApp() {
             )}
             {visible === "levels" && (
               <LevelSelect
+                t={t}
                 theme={theme}
                 current={save.level}
                 cleared={save.clearedCampaign}
@@ -445,6 +458,7 @@ export function GameApp() {
             )}
             {visible === "shop" && (
               <ShopScreen
+                t={t}
                 save={save}
                 onBack={() => setScreen("menu")}
                 onNote={setUnlockNote}
@@ -460,7 +474,7 @@ export function GameApp() {
                       themeId,
                     };
                   });
-                  setUnlockNote("Motyw odblokowany");
+                  setUnlockNote(t("theme_unlocked"));
                 }}
                 onPickShape={(id) => updateSave((current) => ({ ...current, crystalShape: id }))}
                 onBuyShape={(id, price) => {
@@ -474,7 +488,7 @@ export function GameApp() {
                       crystalShape: id,
                     };
                   });
-                  setUnlockNote("Kształt odblokowany");
+                  setUnlockNote(t("shape_unlocked"));
                 }}
                 onPickSound={(id) => updateSave((current) => ({ ...current, soundPack: id }))}
                 onBuySound={(id, price) => {
@@ -488,7 +502,7 @@ export function GameApp() {
                       soundPack: id,
                     };
                   });
-                  setUnlockNote("Brzmienie odblokowane");
+                  setUnlockNote(t("sound_unlocked"));
                 }}
                 onBuyTrail={() => {
                   updateSave((current) => {
@@ -503,16 +517,22 @@ export function GameApp() {
                       trailEnabled: true,
                     };
                   });
-                  setUnlockNote(save.trailOwned ? "Ślad przełączony" : "Ślad światła odblokowany");
+                  setUnlockNote(save.trailOwned ? t("trail_toggled") : t("trail_unlocked"));
                 }}
                 onBuyPack={(packId) => {
                   const pack = CRYSTAL_PACKS.find((item) => item.id === packId);
                   if (!pack) return;
+                  const name =
+                    pack.id === "small"
+                      ? t("pack_small")
+                      : pack.id === "medium"
+                        ? t("pack_medium")
+                        : t("pack_large");
                   updateSave((current) => ({
                     ...current,
                     crystals: current.crystals + pack.crystals,
                   }));
-                  setUnlockNote(`+${pack.crystals} kryształów · ${pack.name}`);
+                  setUnlockNote(t("pack_claimed", { n: pack.crystals, name }));
                 }}
                 onWatchAd={() => {
                   const now = Date.now();
@@ -526,24 +546,23 @@ export function GameApp() {
                       lastAdAt: now,
                     };
                   });
-                  setUnlockNote(
-                    ok
-                      ? `+${AD_CRYSTAL_REWARD} kryształów (tu będzie reklama)`
-                      : "Poczekaj chwilę na kolejną nagrodę",
-                  );
+                  setUnlockNote(ok ? t("ad_reward", { n: AD_CRYSTAL_REWARD }) : t("ad_wait"));
                 }}
               />
             )}
             {visible === "settings" && (
               <SettingsScreen
+                t={t}
                 save={save}
                 theme={theme}
+                systemLocale={systemLocale}
                 confirmReset={confirmReset}
                 onBack={() => setScreen("menu")}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
                 onToggleHaptics={() =>
                   updateSave((current) => ({ ...current, haptics: !current.haptics }))
                 }
+                onLocale={(next) => updateSave((current) => ({ ...current, locale: next }))}
                 onDuel={() => setScreen("duel")}
                 onTutorial={openTutorial}
                 onReset={() => {
@@ -555,6 +574,7 @@ export function GameApp() {
                     muted: save.muted,
                     haptics: save.haptics,
                     tutorialSeen: true,
+                    locale: save.locale,
                   });
                   setConfirmReset(false);
                   setPlayMode("campaign");
@@ -562,7 +582,7 @@ export function GameApp() {
                   setDailySeed(undefined);
                   setRushResult(null);
                   setRun((value) => value + 1);
-                  setUnlockNote("Postęp wyczyszczony · poziom 1");
+                  setUnlockNote(t("progress_reset"));
                   setScreen("menu");
                 }}
               />
@@ -591,6 +611,7 @@ export function GameApp() {
 }
 
 function MainMenu({
+  t,
   level,
   muted,
   crystals,
@@ -610,6 +631,7 @@ function MainMenu({
   onToggleMuted,
   onSettings,
 }: {
+  t: TranslateFn;
   level: number;
   muted: boolean;
   crystals: number;
@@ -629,7 +651,10 @@ function MainMenu({
   onToggleMuted: () => void;
   onSettings: () => void;
 }) {
-  const label = level > CAMPAIGN_LEVELS ? `Nieskończone ${level - CAMPAIGN_LEVELS}` : `Poziom ${level}`;
+  const label =
+    level > CAMPAIGN_LEVELS
+      ? t("endless_n", { n: level - CAMPAIGN_LEVELS })
+      : t("level_n", { n: level });
   return (
     <div className="flex h-full flex-col">
       <div className="relative pt-1">
@@ -637,7 +662,7 @@ function MainMenu({
           type="button"
           onClick={onToggleMuted}
           aria-pressed={muted}
-          aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
+          aria-label={muted ? t("mute_on") : t("mute_off")}
           className="ui-chip absolute left-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
         >
           <SpeakerIcon muted={muted} />
@@ -645,7 +670,7 @@ function MainMenu({
         <button
           type="button"
           onClick={onSettings}
-          aria-label="Ustawienia"
+          aria-label={t("settings")}
           className="ui-chip absolute right-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
         >
           <GearIcon />
@@ -661,7 +686,9 @@ function MainMenu({
             <Diamond style={{ color: theme.warm }} />
             <span className="h-px w-9 bg-current opacity-40" />
           </div>
-          <p className="ui-muted mt-2.5 text-[12px] tabular-nums tracking-wide">{crystals} kryształów</p>
+          <p className="ui-muted mt-2.5 text-[12px] tabular-nums tracking-wide">
+            {t("crystals_count", { n: crystals })}
+          </p>
         </div>
       </div>
 
@@ -676,7 +703,7 @@ function MainMenu({
             <PlayCrystal accent={theme.warm} ink={theme.ink} />
           </span>
           <span className="min-w-0">
-            <span className="block text-[1.4rem] font-medium leading-none tracking-wide">Graj</span>
+            <span className="block text-[1.4rem] font-medium leading-none tracking-wide">{t("play")}</span>
             <span className="mt-1.5 block text-[13px] font-normal opacity-55">{label}</span>
           </span>
           <span className="ml-auto pr-2 text-[2rem] font-light tabular-nums leading-none">
@@ -704,9 +731,9 @@ function MainMenu({
             <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[1.15rem] font-medium leading-none">Daily</span>
+            <span className="block text-[1.15rem] font-medium leading-none">{t("daily")}</span>
             <span className={`mt-1.5 block text-[12px] ${dailyDone ? "ui-muted" : "opacity-80"}`}>
-              {dailyDone ? "Zaliczone dziś" : `Układ dnia · +${dailyReward}`}
+              {dailyDone ? t("daily_done") : t("daily_layout", { n: dailyReward })}
             </span>
           </span>
           {dailyStreak > 0 && (
@@ -716,7 +743,7 @@ function MainMenu({
                 background: `${theme.warm}22`,
                 color: theme.warm,
               }}
-              aria-label={`Seria ${dailyStreak} ${dailyStreak === 1 ? "dzień" : "dni"}`}
+              aria-label={t("streak_aria", { n: dailyStreak })}
             >
               <StreakFlame accent={theme.warm} />
               <span className="text-[15px] font-medium tabular-nums leading-none">{dailyStreak}</span>
@@ -725,25 +752,25 @@ function MainMenu({
         </button>
 
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-          <FeatureTile label="Pojedynek" detail="Kanapa lub kod" onClick={onDuel}>
+          <FeatureTile label={t("duel")} detail={t("duel_detail")} onClick={onDuel}>
             <DuelIcon accent={theme.warm} />
           </FeatureTile>
-          <FeatureTile label="Tryby" detail="Błyskawica · Echo" onClick={onModes}>
+          <FeatureTile label={t("modes")} detail={t("modes_detail")} onClick={onModes}>
             <EventIcon accent={theme.warm} />
           </FeatureTile>
         </div>
 
         <div className="mt-2.5 grid grid-cols-4 gap-2">
-          <DockTile label="Poziomy" onClick={onLevels}>
+          <DockTile label={t("levels")} onClick={onLevels}>
             <LevelsIcon />
           </DockTile>
-          <DockTile label="Album" onClick={onAlbum}>
+          <DockTile label={t("album")} onClick={onAlbum}>
             <AlbumIcon count={albumCount} accent={theme.warm} />
           </DockTile>
-          <DockTile label="Sklep" onClick={onShop}>
+          <DockTile label={t("shop")} onClick={onShop}>
             <ShopIcon accent={theme.warm} />
           </DockTile>
-          <DockTile label="Jak grać" onClick={onTutorial}>
+          <DockTile label={t("how_to_play")} onClick={onTutorial}>
             <LearnIcon accent={theme.warm} />
           </DockTile>
         </div>
@@ -753,11 +780,13 @@ function MainMenu({
 }
 
 function ModesScreen({
+  t,
   onBack,
   onRush,
   onMaster,
   onEcho,
 }: {
+  t: TranslateFn;
   onBack: () => void;
   onRush: () => void;
   onMaster: () => void;
@@ -765,24 +794,31 @@ function ModesScreen({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScreenHeader title="Tryby" kicker="Warianty rozgrywki" onBack={onBack} />
-      <div className="mt-6 flex flex-col gap-2.5">
+      <ScreenHeader title={t("modes")} kicker={t("modes_kicker")} backLabel={t("back_menu")} onBack={onBack} />
+      <div className="mt-6 flex flex-col gap-3">
         <ModeRow
-          title="Błyskawica"
-          detail="15 s · każde rozplątanie +4 s · ile wytrzymasz"
+          title={t("mode_rush")}
+          detail={t("mode_rush_detail")}
+          tag={t("mode_rush_tag")}
           onClick={onRush}
+          icon={<ModeRushIcon />}
         />
         <ModeRow
-          title="Mistrz"
-          detail="Tylko ruchy w limicie paru · jak szachy"
+          title={t("mode_master")}
+          detail={t("mode_master_detail")}
+          tag={t("mode_master_tag")}
           onClick={onMaster}
+          icon={<ModeMasterIcon />}
         />
         <ModeRow
-          title="Echo"
-          detail="Struny ukryte · sonar przy dotknięciu"
+          title={t("mode_echo")}
+          detail={t("mode_echo_detail")}
+          tag={t("mode_echo_tag")}
           onClick={onEcho}
+          icon={<ModeEchoIcon />}
         />
       </div>
+      <p className="ui-muted mt-auto pb-2 text-center text-[12px]">{t("modes_footer")}</p>
     </div>
   );
 }
@@ -790,28 +826,116 @@ function ModesScreen({
 function ModeRow({
   title,
   detail,
+  tag,
   onClick,
+  icon,
 }: {
   title: string;
   detail: string;
+  tag: string;
   onClick: () => void;
+  icon: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="ui-panel flex h-[4.75rem] flex-col justify-center rounded-[1.15rem] border px-4 text-left backdrop-blur-md active:scale-[0.985]"
+      className="ui-panel flex min-h-[5.35rem] items-center gap-3.5 rounded-[1.35rem] border px-3.5 py-3 text-left backdrop-blur-md active:scale-[0.985]"
     >
-      <span className="text-[17px] font-normal">{title}</span>
-      <span className="ui-muted mt-1 text-[13px]">{detail}</span>
+      <span
+        className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl"
+        style={{ background: "var(--ui-warm-soft)", color: "var(--ui-warm)" }}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="ui-accent block text-[10px] uppercase tracking-[0.22em]">{tag}</span>
+        <span className="mt-1 block text-[1.2rem] font-medium leading-none tracking-wide">{title}</span>
+        <span className="ui-muted mt-1.5 block text-[12px] leading-snug">{detail}</span>
+      </span>
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="ui-muted shrink-0 opacity-70">
+        <path
+          d="M5 2.5 9.5 7 5 11.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </button>
   );
 }
 
+function ModeRushIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+      <path
+        d="M15.2 3.2 8.4 15.1h5.1L11.6 24.8 21.2 11.4h-5.4L18.4 3.2Z"
+        fill="currentColor"
+        fillOpacity="0.95"
+      />
+    </svg>
+  );
+}
+
+function ModeMasterIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+      <path
+        d="M7.2 8.2 10.4 5.4h7.2L20.8 8.2v3.2L14 14.6 7.2 11.4V8.2Z"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinejoin="round"
+      />
+      <path d="M14 14.6V22.4" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
+      <path d="M9.2 22.4h9.6" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
+      <circle cx="10.6" cy="9.4" r="1.1" fill="currentColor" />
+      <circle cx="17.4" cy="9.4" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ModeEchoIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden fill="none">
+      <circle cx="10.2" cy="14" r="2.4" fill="currentColor" />
+      <path
+        d="M14.2 9.2a7.2 7.2 0 0 1 0 9.6"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+      />
+      <path
+        d="M17.4 6.4a11.2 11.2 0 0 1 0 15.2"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
+      <path
+        d="M20.4 3.8a15 15 0 0 1 0 20.4"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        opacity="0.4"
+      />
+    </svg>
+  );
+}
+
+function kindLabel(kind: "animal" | "plant" | "object", t: TranslateFn): string {
+  if (kind === "animal") return t("kind_animal");
+  if (kind === "plant") return t("kind_plant");
+  return t("kind_object");
+}
+
 function AlbumScreen({
+  t,
   unlocked,
   onBack,
 }: {
+  t: TranslateFn;
   unlocked: readonly string[];
   onBack: () => void;
 }) {
@@ -822,8 +946,9 @@ function AlbumScreen({
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <ScreenHeader
-        title="Album"
-        kicker={`${open.size} / ${CONSTELLATIONS.length} konstelacji`}
+        title={t("album")}
+        kicker={t("album_kicker", { n: open.size, total: CONSTELLATIONS.length })}
+        backLabel={t("back_menu")}
         onBack={onBack}
       />
       <div className="mt-6 grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pb-2">
@@ -849,36 +974,34 @@ function AlbumScreen({
               <span className="mt-2.5 text-[15px] font-normal">{found ? figure.name : "???"}</span>
               <span className="ui-muted mt-1 text-[11px]">
                 {found
-                  ? `${constellationKindLabel(figure.kind)} · poz. ${figure.level}`
-                  : `Poziom ${figure.level}`}
+                  ? t("album_found_meta", { kind: kindLabel(figure.kind, t), n: figure.level })
+                  : t("album_locked_meta", { n: figure.level })}
               </span>
             </button>
           );
         })}
       </div>
-      <p className="ui-muted pb-2 text-center text-[12px]">
-        Stuknij odblokowaną figurę, by zobaczyć podgląd
-      </p>
+      <p className="ui-muted pb-2 text-center text-[12px]">{t("album_hint")}</p>
 
       {preview && (
         <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/55 px-4 pb-[max(1.1rem,env(safe-area-inset-bottom))] pt-16 backdrop-blur-[3px]">
           <div className="ui-panel flex flex-col items-center rounded-[1.45rem] border px-5 py-6">
             <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">
-              {constellationKindLabel(preview.kind)} · poziom {preview.level}
+              {t("album_found_meta", { kind: kindLabel(preview.kind, t), n: preview.level })}
             </p>
             <h2 className="mt-2 text-[1.85rem] font-light tracking-[-0.03em]">{preview.name}</h2>
             <div className="mt-5 grid place-items-center">
               <ConstellationSketch figureId={preview.id} lit size={168} />
             </div>
             <p className="ui-muted mt-4 text-center text-[13px] leading-relaxed">
-              {preview.reveal}. Złóż ten zarys na planszy — kryształy wpadają w świetlne gniazda.
+              {preview.reveal}. {t("album_preview_hint")}
             </p>
             <button
               type="button"
               className="play-seal mt-5 h-14 w-full rounded-[1.15rem] text-[15px] font-medium"
               onClick={() => setPreviewId(null)}
             >
-              Zamknij
+              {t("album_close")}
             </button>
           </div>
         </div>
@@ -1007,6 +1130,7 @@ function EventScreen({
 }
 
 function LevelSelect({
+  t,
   theme,
   current,
   cleared,
@@ -1016,6 +1140,7 @@ function LevelSelect({
   onPick,
   onEndless,
 }: {
+  t: TranslateFn;
   theme: VisualTheme;
   current: number;
   cleared: number[];
@@ -1029,8 +1154,13 @@ function LevelSelect({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScreenHeader
-        title="Poziomy"
-        kicker={done === 0 ? "Kampania 1–60" : `${done} / ${CAMPAIGN_LEVELS}`}
+        title={t("levels_title")}
+        kicker={
+          done === 0
+            ? t("levels_kicker_empty")
+            : t("levels_kicker_progress", { n: done, total: CAMPAIGN_LEVELS })
+        }
+        backLabel={t("back_menu")}
         onBack={onBack}
       />
       <div className="mt-6 grid min-h-0 flex-1 grid-cols-3 content-start gap-2.5 overflow-y-auto pb-2">
@@ -1080,20 +1210,33 @@ function LevelSelect({
           endlessOpen ? "ui-panel-soft" : "ui-panel-locked"
         }`}
       >
-        <span className="text-[1.15rem] font-light">Nieskończone</span>
+        <span className="text-[1.15rem] font-light">{t("endless")}</span>
         <span className="ui-muted mt-1 text-[12px]">
           {endlessOpen
             ? endlessBest > 0
-              ? `Rekord: poziom ${endlessBest}`
-              : "Po kampanii · bez końca"
-            : `Po poziomie ${CAMPAIGN_LEVELS}`}
+              ? t("endless_record", { n: endlessBest })
+              : t("endless_unlocked")
+            : t("endless_locked", { n: CAMPAIGN_LEVELS })}
         </span>
       </button>
     </div>
   );
 }
 
+function themeUnlockLabel(theme: VisualTheme, t: TranslateFn): string {
+  if (theme.unlockAt <= 0 && theme.unlockEndless <= 0) return t("theme_from_start");
+  if (theme.unlockEndless > 0) return t("endless_n", { n: theme.unlockEndless });
+  return t("level_n", { n: theme.unlockAt });
+}
+
+function packCopy(id: CrystalPackId, t: TranslateFn): { name: string; detail: string } {
+  if (id === "small") return { name: t("pack_small"), detail: t("pack_small_detail") };
+  if (id === "medium") return { name: t("pack_medium"), detail: t("pack_medium_detail") };
+  return { name: t("pack_large"), detail: t("pack_large_detail") };
+}
+
 function ShopScreen({
+  t,
   save,
   onBack,
   onNote,
@@ -1107,6 +1250,7 @@ function ShopScreen({
   onBuyPack,
   onWatchAd,
 }: {
+  t: TranslateFn;
   save: GameSave;
   onBack: () => void;
   onNote: (note: string) => void;
@@ -1126,20 +1270,25 @@ function ShopScreen({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScreenHeader title="Sklep" kicker={`${save.crystals} kryształów`} onBack={onBack} />
+      <ScreenHeader
+        title={t("shop_title")}
+        kicker={t("crystals_count", { n: save.crystals })}
+        backLabel={t("back_menu")}
+        onBack={onBack}
+      />
       <div className="mt-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-4">
-        <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Zarabiaj</p>
+        <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_earn")}</p>
         <button type="button" onClick={onWatchAd} className={`${tile} justify-between`}>
           <span>
-            <span className="block text-[17px] font-normal">Obejrzyj reklamę</span>
+            <span className="block text-[17px] font-normal">{t("shop_watch_ad")}</span>
             <span className="ui-muted mt-1 block text-[13px]">
-              {adReady ? `+${AD_CRYSTAL_REWARD} kryształów` : "Zaraz będzie dostępna"}
+              {adReady ? t("shop_ad_ready", { n: AD_CRYSTAL_REWARD }) : t("shop_ad_wait")}
             </span>
           </span>
           <span className="ui-accent text-[1.35rem] font-light tabular-nums">+{AD_CRYSTAL_REWARD}</span>
         </button>
 
-        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Motywy</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_themes")}</p>
         <div className="flex flex-col gap-3">
           {THEMES.map((item) => {
             const unlocked = isThemeUnlocked(
@@ -1151,6 +1300,7 @@ function ShopScreen({
             const price = themeCrystalPrice(item);
             const active = save.themeId === item.id;
             const canBuy = !unlocked && price !== null && save.crystals >= price;
+            const unlock = themeUnlockLabel(item, t);
 
             return (
               <button
@@ -1163,7 +1313,7 @@ function ShopScreen({
                     return;
                   }
                   if (price !== null && canBuy) onBuyTheme(item.id, price);
-                  else if (price !== null) onNote(`Potrzebujesz ${price} kryształów`);
+                  else if (price !== null) onNote(t("need_crystals", { n: price }));
                 }}
                 className={`${tile} ${
                   active ? "ui-panel-active" : unlocked || canBuy ? "" : "ui-panel-locked opacity-55"
@@ -1185,11 +1335,11 @@ function ShopScreen({
                   <span className="ui-muted mt-1 block text-[13px]">
                     {unlocked
                       ? active
-                        ? "Aktywny"
-                        : "Odblokowany"
+                        ? t("shop_active")
+                        : t("shop_unlocked")
                       : price !== null
-                        ? `${themeUnlockRequirement(item)} · lub ${price}`
-                        : themeUnlockRequirement(item)}
+                        ? t("unlock_or_buy", { req: unlock, price })
+                        : unlock}
                   </span>
                 </span>
                 {!unlocked && price !== null && (
@@ -1200,7 +1350,7 @@ function ShopScreen({
           })}
         </div>
 
-        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Kryształy</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_shapes")}</p>
         <div className="flex flex-col gap-3">
           {CRYSTAL_SHAPES.map((shape) => {
             const owned = shape.price === 0 || save.purchasedShapes.includes(shape.id);
@@ -1214,7 +1364,7 @@ function ShopScreen({
                 onClick={() => {
                   if (owned) onPickShape(shape.id);
                   else if (canBuy) onBuyShape(shape.id, shape.price);
-                  else onNote(`Potrzebujesz ${shape.price} kryształów`);
+                  else onNote(t("need_crystals", { n: shape.price }));
                 }}
                 className={`${tile} ${
                   active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
@@ -1226,7 +1376,7 @@ function ShopScreen({
                 <span className="min-w-0 flex-1">
                   <span className="block text-[17px] font-normal">{shape.name}</span>
                   <span className="ui-muted mt-1 block text-[13px]">
-                    {owned ? (active ? "Aktywny na planszy" : shape.detail) : shape.detail}
+                    {owned ? (active ? t("shop_active_board") : shape.detail) : shape.detail}
                   </span>
                 </span>
                 {!owned && (
@@ -1237,7 +1387,7 @@ function ShopScreen({
           })}
         </div>
 
-        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Brzmienia</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_sounds")}</p>
         <div className="flex flex-col gap-3">
           {SOUND_PACKS.map((pack) => {
             const owned = pack.price === 0 || save.purchasedSounds.includes(pack.id);
@@ -1251,7 +1401,7 @@ function ShopScreen({
                 onClick={() => {
                   if (owned) onPickSound(pack.id);
                   else if (canBuy) onBuySound(pack.id, pack.price);
-                  else onNote(`Potrzebujesz ${pack.price} kryształów`);
+                  else onNote(t("need_crystals", { n: pack.price }));
                 }}
                 className={`${tile} ${
                   active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
@@ -1263,7 +1413,7 @@ function ShopScreen({
                 <span className="min-w-0 flex-1">
                   <span className="block text-[17px] font-normal">{pack.name}</span>
                   <span className="ui-muted mt-1 block text-[13px]">
-                    {owned ? (active ? "Aktywne" : pack.detail) : pack.detail}
+                    {owned ? (active ? t("shop_active_sound") : pack.detail) : pack.detail}
                   </span>
                 </span>
                 {!owned && (
@@ -1274,12 +1424,12 @@ function ShopScreen({
           })}
         </div>
 
-        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Efekty</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_effects")}</p>
         <button
           type="button"
           onClick={() => {
             if (!save.trailOwned && save.crystals < TRAIL_PRICE) {
-              onNote(`Potrzebujesz ${TRAIL_PRICE} kryształów`);
+              onNote(t("need_crystals", { n: TRAIL_PRICE }));
               return;
             }
             onBuyTrail();
@@ -1292,13 +1442,13 @@ function ShopScreen({
             <TrailIcon active={save.trailOwned} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[17px] font-normal">Ślad światła</span>
+            <span className="block text-[17px] font-normal">{t("trail")}</span>
             <span className="ui-muted mt-1 block text-[13px]">
               {save.trailOwned
                 ? save.trailEnabled
-                  ? "Włączony · stuknij, by wyłączyć"
-                  : "Wyłączony · stuknij, by włączyć"
-                : "Pył za przeciąganym kryształem"}
+                  ? t("trail_on")
+                  : t("trail_off")
+                : t("trail_buy")}
             </span>
           </span>
           <span className="ui-muted text-[15px] font-light tabular-nums">
@@ -1307,36 +1457,39 @@ function ShopScreen({
         </button>
 
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">
-          Paczki kryształów
+          {t("shop_packs")}
         </p>
         <div className="flex flex-col gap-3">
-          {CRYSTAL_PACKS.map((pack) => (
-            <button
-              key={pack.id}
-              type="button"
-              onClick={() => onBuyPack(pack.id)}
-              className={`${tile}`}
-            >
-              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
-                <CrystalPackIcon size={pack.id} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[17px] font-normal">{pack.name}</span>
-                <span className="ui-muted mt-1 block text-[13px]">
-                  {pack.detail} · +{pack.crystals}
+          {CRYSTAL_PACKS.map((pack) => {
+            const copy = packCopy(pack.id, t);
+            return (
+              <button
+                key={pack.id}
+                type="button"
+                onClick={() => onBuyPack(pack.id)}
+                className={`${tile}`}
+              >
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                  <CrystalPackIcon size={pack.id} />
                 </span>
-              </span>
-              <span className="ui-accent text-[14px] font-medium tabular-nums">{pack.labelPrice}</span>
-            </button>
-          ))}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-normal">{copy.name}</span>
+                  <span className="ui-muted mt-1 block text-[13px]">
+                    {copy.detail} · +{pack.crystals}
+                  </span>
+                </span>
+                <span className="ui-accent text-[14px] font-medium tabular-nums">{pack.labelPrice}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Wsparcie</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_support")}</p>
         <div className="flex flex-col gap-3">
           <SettingRow
-            label="Usuń reklamy"
-            detail="Wkrótce — jednorazowy zakup"
-            onClick={() => onNote("Płatności wkrótce")}
+            label={t("remove_ads")}
+            detail={t("remove_ads_detail")}
+            onClick={() => onNote(t("payments_soon"))}
           />
         </div>
       </div>
@@ -1472,53 +1625,122 @@ function ShapePreview({ id, active }: { id: CrystalShapeId; active: boolean }) {
 }
 
 function SettingsScreen({
+  t,
   save,
   theme,
+  systemLocale,
   confirmReset,
   onBack,
   onToggleMuted,
   onToggleHaptics,
+  onLocale,
   onDuel,
   onTutorial,
   onReset,
 }: {
+  t: TranslateFn;
   save: GameSave;
   theme: VisualTheme;
+  systemLocale: ReturnType<typeof resolveLocale>;
   confirmReset: boolean;
   onBack: () => void;
   onToggleMuted: () => void;
   onToggleHaptics: () => void;
+  onLocale: (next: LocalePreference) => void;
   onDuel: () => void;
   onTutorial: () => void;
   onReset: () => void;
 }) {
+  const [langOpen, setLangOpen] = useState(false);
+  const languageDetail =
+    save.locale === "auto"
+      ? t("language_auto", { name: localeNativeName(systemLocale) })
+      : localeNativeName(save.locale);
+
   return (
-    <div className="flex h-full flex-col">
-      <ScreenHeader title="Ustawienia" kicker="Dźwięk i postęp" onBack={onBack} />
-      <div className="mt-6 flex flex-col gap-2.5">
+    <div className="flex h-full min-h-0 flex-col">
+      <ScreenHeader
+        title={t("settings")}
+        kicker={t("settings_kicker")}
+        backLabel={t("back_menu")}
+        onBack={onBack}
+      />
+      <div className="mt-6 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pb-4">
         <SettingRow
-          label="Dźwięk"
-          detail={save.muted ? "Cisza" : "Harfa włączona"}
+          label={t("sound")}
+          detail={save.muted ? t("sound_off") : t("sound_on")}
           pressed={!save.muted}
           accent={theme.warm}
           onClick={onToggleMuted}
         />
         <SettingRow
-          label="Wibracje"
-          detail={save.haptics ? "Przy złapaniu kryształu" : "Wyłączone"}
+          label={t("haptics")}
+          detail={save.haptics ? t("haptics_on") : t("haptics_off")}
           pressed={save.haptics}
           accent={theme.warm}
           onClick={onToggleHaptics}
         />
-        <SettingRow label="Pojedynek" detail="Wyścig na dwóch telefonach" onClick={onDuel} />
-        <SettingRow label="Nauka" detail="Pokaż jeszcze raz" onClick={onTutorial} />
+        <div className="ui-panel overflow-hidden rounded-[1.15rem] border backdrop-blur-md">
+          <button
+            type="button"
+            aria-expanded={langOpen}
+            onClick={() => setLangOpen((open) => !open)}
+            className="flex h-[4.75rem] w-full items-center justify-between px-4 text-left"
+          >
+            <span>
+              <span className="block text-[17px] font-normal">{t("language")}</span>
+              <span className="ui-muted mt-1 block text-[13px]">{languageDetail}</span>
+            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              aria-hidden
+              className={`ui-muted shrink-0 transition-transform ${langOpen ? "rotate-180" : ""}`}
+            >
+              <path
+                d="M3 5.2 7 9.2 11 5.2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          {langOpen && (
+            <div className="border-t border-white/10 px-2 pb-2 pt-1" role="listbox" aria-label={t("language")}>
+              <LanguageOption
+                label={t("language_system")}
+                detail={t("language_auto", { name: localeNativeName(systemLocale) })}
+                selected={save.locale === "auto"}
+                accent={theme.warm}
+                onClick={() => {
+                  onLocale("auto");
+                  setLangOpen(false);
+                }}
+              />
+              {LOCALE_OPTIONS.map((option) => (
+                <LanguageOption
+                  key={option.id}
+                  label={option.native}
+                  detail={option.id.toUpperCase()}
+                  selected={save.locale === option.id}
+                  accent={theme.warm}
+                  onClick={() => {
+                    onLocale(option.id);
+                    setLangOpen(false);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <SettingRow label={t("duel")} detail={t("duel_settings_detail")} onClick={onDuel} />
+        <SettingRow label={t("learn")} detail={t("tutorial_again")} onClick={onTutorial} />
         <SettingRow
-          label={confirmReset ? "Na pewno wyczyścić?" : "Resetuj postęp"}
-          detail={
-            confirmReset
-              ? "Stuknij jeszcze raz — start od poziomu 1"
-              : "Poziomy, kryształy, album i sklep od zera"
-          }
+          label={confirmReset ? t("reset_confirm") : t("reset_progress")}
+          detail={confirmReset ? t("reset_confirm_detail") : t("reset_detail")}
           danger
           onClick={onReset}
         />
@@ -1527,13 +1749,63 @@ function SettingsScreen({
   );
 }
 
+function LanguageOption({
+  label,
+  detail,
+  selected,
+  accent,
+  onClick,
+}: {
+  label: string;
+  detail: string;
+  selected: boolean;
+  accent: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={onClick}
+      className={`mt-1 flex min-h-[3.35rem] w-full items-center justify-between rounded-[0.95rem] px-3 text-left ${
+        selected ? "ui-panel-active" : "active:bg-white/5"
+      }`}
+    >
+      <span>
+        <span className="block text-[15px] font-normal">{label}</span>
+        <span className="ui-muted mt-0.5 block text-[12px]">{detail}</span>
+      </span>
+      {selected && (
+        <span
+          className="grid h-5 w-5 shrink-0 place-items-center rounded-full"
+          style={{ background: accent }}
+          aria-hidden
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path
+              d="M2 5.2 4.1 7.2 8 2.8"
+              stroke="#09090b"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      )}
+    </button>
+  );
+}
+
 function ScreenHeader({
   title,
   kicker,
+  backLabel = "Back",
   onBack,
 }: {
   title: string;
   kicker: string;
+  backLabel?: string;
   onBack: () => void;
 }) {
   return (
@@ -1541,7 +1813,7 @@ function ScreenHeader({
       <button
         type="button"
         onClick={onBack}
-        aria-label="Wróć do menu"
+        aria-label={backLabel}
         className="ui-chip grid h-12 w-12 shrink-0 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">

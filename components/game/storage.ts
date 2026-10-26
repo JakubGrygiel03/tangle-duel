@@ -14,10 +14,13 @@ import {
 } from "@/lib/engine/constellations";
 import { CAMPAIGN_LEVELS } from "@/lib/engine/graph";
 import { computeUnlockedThemes, getTheme, type ThemeId } from "@/lib/engine/themes";
+import { isLocaleId, type LocalePreference } from "@/lib/i18n";
 
 export type GameSave = {
   muted: boolean;
   haptics: boolean;
+  /** Preferencja języka: auto = język systemu (fallback EN). */
+  locale: LocalePreference;
   tutorialSeen: boolean;
   /** Pierwsze wyjaśnienie mechaniki konstelacji (poziom 5). */
   constellationIntroSeen: boolean;
@@ -54,9 +57,16 @@ export type GameSave = {
 
 const KEY = "tangle-duel-save";
 
+function sanitizeLocale(value: unknown): LocalePreference {
+  if (value === "auto") return "auto";
+  if (typeof value === "string" && isLocaleId(value)) return value;
+  return "auto";
+}
+
 export const defaultSave = (): GameSave => ({
   muted: false,
   haptics: true,
+  locale: "auto",
   tutorialSeen: false,
   constellationIntroSeen: false,
   level: 1,
@@ -226,6 +236,7 @@ export function loadSave(): GameSave {
     return {
       muted: parsed.muted === true,
       haptics: parsed.haptics !== false,
+      locale: sanitizeLocale(parsed.locale),
       tutorialSeen: parsed.tutorialSeen === true,
       constellationIntroSeen: parsed.constellationIntroSeen === true,
       level: progressLevel,
@@ -287,15 +298,17 @@ export function updateSave(recipe: (current: GameSave) => GameSave): void {
 
 /** Pełny reset postępu — czyści localStorage i wraca do poziomu 1. */
 export function resetProgress(
-  keep: Pick<GameSave, "muted" | "haptics"> & { tutorialSeen?: boolean } = {
+  keep: Pick<GameSave, "muted" | "haptics" | "locale"> & { tutorialSeen?: boolean } = {
     muted: false,
     haptics: true,
+    locale: "auto",
   },
 ): GameSave {
   const next: GameSave = {
     ...defaultSave(),
     muted: keep.muted,
     haptics: keep.haptics,
+    locale: keep.locale ?? "auto",
     tutorialSeen: keep.tutorialSeen ?? true,
   };
   memory = next;

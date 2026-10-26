@@ -5,6 +5,7 @@ import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
 import { themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
+import type { TranslateFn } from "@/lib/i18n";
 
 type CouchPhase =
   | { kind: "ready" }
@@ -19,6 +20,7 @@ type CouchDuelProps = {
   soundPack?: SoundPackId;
   crystalShape?: CrystalShapeId;
   trail?: boolean;
+  t?: TranslateFn;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
 };
@@ -41,6 +43,7 @@ export function CouchDuel({
   soundPack = "harp",
   crystalShape = "diamond",
   trail = false,
+  t,
   onMuted,
   onBack,
 }: CouchDuelProps) {
@@ -97,6 +100,7 @@ export function CouchDuel({
       soundPack,
       crystalShape,
       trail,
+      t,
       onMenu: onBack,
       onMuted,
       onAdvance: () => undefined,

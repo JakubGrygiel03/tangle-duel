@@ -12,6 +12,7 @@ import {
   type DuelWire,
 } from "@/lib/net/duel";
 import { themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
+import type { TranslateFn } from "@/lib/i18n";
 
 type Phase =
   | { kind: "pick" }
@@ -30,6 +31,7 @@ type DuelLobbyProps = {
   soundPack?: SoundPackId;
   crystalShape?: CrystalShapeId;
   trail?: boolean;
+  t?: TranslateFn;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
 };
@@ -41,6 +43,7 @@ export function DuelLobby({
   soundPack = "harp",
   crystalShape = "diamond",
   trail = false,
+  t,
   onMuted,
   onBack,
 }: DuelLobbyProps) {
@@ -206,6 +209,7 @@ export function DuelLobby({
         soundPack={soundPack}
         crystalShape={crystalShape}
         trail={trail}
+        t={t}
         onMuted={onMuted}
         onBack={() => setPhase({ kind: "pick" })}
       />
@@ -225,6 +229,7 @@ export function DuelLobby({
         soundPack={soundPack}
         crystalShape={crystalShape}
         trail={trail}
+        t={t}
         onMenu={() => {
           tearDown();
           onBack();

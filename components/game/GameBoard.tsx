@@ -25,6 +25,9 @@ import {
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
 import { getTheme, themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
+import { createTranslator, type TranslateFn } from "@/lib/i18n";
+
+const defaultT = createTranslator("en");
 
 /** Czysty układ musi tyle wytrzymać, zanim poziom się zaliczy. */
 const HOLD_MS = 3000;
@@ -71,6 +74,7 @@ type GameBoardProps = {
   /** Krótsze HUD pod wąski pas split. */
   compact?: boolean;
   label?: string;
+  t?: TranslateFn;
   onMenu: () => void;
   onMuted: (muted: boolean) => void;
   onCleared: (info: ClearInfo) => void;
@@ -97,6 +101,7 @@ export function GameBoard({
   inverted = false,
   hideChrome = false,
   compact = false,
+  t = defaultT,
   label,
   onMenu,
   onMuted,
@@ -666,11 +671,11 @@ export function GameBoard({
   const title =
     label ??
     (mode === "rush"
-      ? "Błyskawica"
+      ? t("mode_rush")
       : mode === "master"
-        ? "Mistrz"
+        ? t("mode_master")
         : mode === "echo"
-          ? "Echo"
+          ? t("mode_echo")
           : "Tangle Duel");
 
   const shellClass = embed
@@ -699,7 +704,7 @@ export function GameBoard({
           ref={canvasRef}
           className="absolute inset-0 block h-full w-full touch-none"
           role="application"
-          aria-label="Plansza Tangle Duel. Przeciągnij kryształy, aby rozplątać struny."
+          aria-label={t("board_aria")}
         />
 
         <div className="pointer-events-none absolute inset-0">
@@ -708,7 +713,7 @@ export function GameBoard({
               ref={menuRef}
               type="button"
               onClick={onMenu}
-              aria-label="Wróć do menu"
+              aria-label={t("back_menu")}
               className="ui-chip pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border bg-black/35 backdrop-blur-md"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
@@ -766,14 +771,14 @@ export function GameBoard({
                   {mode === "rush" ? (
                     <>
                       <HudStat
-                        label="Czas"
+                        label={t("hud_time")}
                         value={`${Math.max(0, Math.ceil(rushMs / 1000))}s`}
                         tone={rushUrgent ? "amber" : "ice"}
                         compact={compact}
                       />
-                      <HudStat label="Seria" value={rushScore} align="center" compact={compact} />
+                      <HudStat label={t("hud_streak")} value={rushScore} align="center" compact={compact} />
                       <HudStat
-                        label="Przecięcia"
+                        label={t("hud_crossings")}
                         value={crossings === null ? "—" : crossings}
                         tone={calm ? "ice" : "amber"}
                         align="end"
@@ -782,16 +787,16 @@ export function GameBoard({
                     </>
                   ) : mode === "master" ? (
                     <>
-                      <HudStat label="Ruchy" value={moveCount} compact={compact} />
+                      <HudStat label={t("hud_moves")} value={moveCount} compact={compact} />
                       <HudStat
-                        label="Par"
+                        label={t("hud_pairs")}
                         value={minMoves === null ? "—" : minMoves}
                         tone={moveCount > (minMoves ?? 99) ? "amber" : "ice"}
                         align="center"
                         compact={compact}
                       />
                       <HudStat
-                        label="Przecięcia"
+                        label={t("hud_crossings")}
                         value={crossings === null ? "—" : crossings}
                         tone={calm ? "ice" : "amber"}
                         align="end"
@@ -800,16 +805,16 @@ export function GameBoard({
                     </>
                   ) : (
                     <>
-                      <HudStat label="Poziom" value={levelLabel} compact={compact} />
+                      <HudStat label={t("level_word")} value={levelLabel} compact={compact} />
                       <HudStat
-                        label="Przecięcia"
+                        label={t("hud_crossings")}
                         value={crossings === null ? "—" : crossings}
                         tone={calm ? "ice" : "amber"}
                         align="center"
                         compact={compact}
                       />
                       <HudStat
-                        label="Min. ruchy"
+                        label={t("hud_min_moves")}
                         value={minMoves === null ? "—" : minMoves}
                         align="end"
                         compact={compact}
@@ -828,9 +833,7 @@ export function GameBoard({
             !compact &&
             mode === "echo" && (
             <p className="ui-muted hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed">
-              Dotknij kryształu — sonar na chwilę
-              <br />
-              pokaże struny i przecięcia.
+              {t("hint_echo")}
             </p>
           )}
 
@@ -841,34 +844,21 @@ export function GameBoard({
             !compact &&
             mode !== "echo" && (
             <p className="ui-muted hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed">
-              {revealName || level % 5 === 0
-                ? (
-                  <>
-                    Magnes wciąga do świetlnych gniazd —
-                    <br />
-                    złóż figurę zarysu, bez przecięć.
-                  </>
-                ) : (
-                  <>
-                    Przeciągnij kryształy wewnątrz okręgu,
-                    <br />
-                    aż struny przestaną się przecinać.
-                  </>
-                )}
+              {revealName || level % 5 === 0 ? t("hint_magnet") : t("hint_untangle")}
             </p>
           )}
 
           {introOpen && !compact && !hideChrome && (
             <div className="pointer-events-auto absolute inset-0 z-40 flex items-end justify-center bg-black/45 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-16 backdrop-blur-[2px]">
               <div className="ui-panel w-full max-w-sm rounded-[1.4rem] border px-5 py-5 shadow-[0_20px_48px_rgba(0,0,0,0.45)]">
-                <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Konstelacja</p>
+                <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">
+                  {t("constellation_intro_kicker")}
+                </p>
                 <h2 className="mt-2 text-[1.65rem] font-light tracking-[-0.03em]">
-                  Ułóż gwiazdozbiór
+                  {t("constellation_intro_title")}
                 </h2>
                 <p className="ui-muted mt-3 text-[14px] font-light leading-relaxed">
-                  Co kilka poziomów pojawia się zarys — diament, zwierzę, roślina. Wciągnij
-                  kryształy w świetlne gniazda, aż struny złożą figurę. Pierwsze odkrycie trafia do
-                  Albumu.
+                  {t("constellation_intro_body")}
                 </p>
                 <button
                   type="button"
@@ -878,7 +868,7 @@ export function GameBoard({
                     onConstellationIntroSeen?.();
                   }}
                 >
-                  Rozumiem
+                  {t("constellation_intro_ok")}
                 </button>
               </div>
             </div>
@@ -904,13 +894,13 @@ export function GameBoard({
                 compact ? "top-[14%] text-xl" : "top-[18%] text-2xl"
               }`}
             >
-              {revealName ?? "Rozplątane"}
+              {revealName ?? t("cleared_default")}
             </p>
           )}
 
           {canvasError && (
             <p className="absolute inset-x-8 top-1/2 -translate-y-1/2 text-center text-sm font-light text-[#fecaca]">
-              Ta przeglądarka nie udostępniła płótna. Otwórz grę w aktualnym Safari lub Chrome.
+              {t("canvas_error")}
             </p>
           )}
 
@@ -919,7 +909,7 @@ export function GameBoard({
               ref={muteRef}
               type="button"
               aria-pressed={muted}
-              aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
+              aria-label={muted ? t("mute_on") : t("mute_off")}
               onClick={() => {
                 const next = !muted;
                 onMuted(next);
