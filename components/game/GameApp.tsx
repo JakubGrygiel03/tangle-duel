@@ -1298,14 +1298,19 @@ function ShopScreen({
         {!save.premiumUnlocked && (
           <>
             <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">{t("shop_earn")}</p>
-            <button type="button" onClick={onWatchAd} className={`${tile} justify-between`}>
-              <span>
+            <button type="button" onClick={onWatchAd} className={`${tile}`}>
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                <WatchAdIcon ready={adReady} />
+              </span>
+              <span className="min-w-0 flex-1">
                 <span className="block text-[17px] font-normal">{t("shop_watch_ad")}</span>
                 <span className="ui-muted mt-1 block text-[13px]">
                   {adReady ? t("shop_ad_ready", { n: AD_CRYSTAL_REWARD }) : t("shop_ad_wait")}
                 </span>
               </span>
-              <span className="ui-accent text-[1.35rem] font-light tabular-nums">+{AD_CRYSTAL_REWARD}</span>
+              <span className="ui-accent shrink-0 text-[1.35rem] font-light tabular-nums">
+                +{AD_CRYSTAL_REWARD}
+              </span>
             </button>
           </>
         )}
@@ -1530,6 +1535,36 @@ function ShopScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+function WatchAdIcon({ ready }: { ready: boolean }) {
+  const ink = ready ? "var(--ui-ice)" : "#64748b";
+  const accent = ready ? "var(--ui-warm)" : "#94a3b8";
+  return (
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden fill="none">
+      <rect
+        x="3.2"
+        y="5.4"
+        width="19.6"
+        height="14.2"
+        rx="3.2"
+        stroke={ink}
+        strokeWidth="1.45"
+      />
+      <path
+        d="M11.2 9.6v6.8L17.4 13Z"
+        fill={accent}
+        fillOpacity={ready ? 0.95 : 0.7}
+      />
+      <path
+        d="M7.2 21.2h11.6"
+        stroke={accent}
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        opacity={ready ? 0.85 : 0.55}
+      />
+    </svg>
   );
 }
 
