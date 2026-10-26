@@ -390,15 +390,17 @@ export function GameBoard({
         if (callbacks.current.trail && trailMotes.length > 0) {
           const style = callbacks.current.trail;
           const fade =
-            style === "comet" || style === "ribbon"
-              ? 1.15
-              : style === "aurora"
-                ? 1.35
-                : style === "ember"
-                  ? 1.55
-                  : style === "spark"
-                    ? 2.4
-                    : 1.8;
+            style === "comet"
+              ? 0.95
+              : style === "ribbon"
+                ? 1.25
+                : style === "aurora"
+                  ? 1.05
+                  : style === "ember"
+                    ? 1.55
+                    : style === "spark"
+                      ? 2.4
+                      : 1.8;
           for (const mote of trailMotes) {
             mote.life -= dt * fade;
             mote.x += mote.vx * dt;
@@ -409,9 +411,20 @@ export function GameBoard({
             } else if (style === "spark") {
               mote.spin += dt * 6;
             } else if (style === "aurora") {
-              mote.spin += dt * 1.2;
-              mote.vx *= 1 - 0.6 * dt;
-              mote.vy *= 1 - 0.6 * dt;
+              mote.spin += dt * 1.8;
+              // Lekki dryf w bok — plamy zorzy „pływają”.
+              mote.vx += Math.cos(mote.spin) * 12 * dt;
+              mote.vy += Math.sin(mote.spin) * 12 * dt;
+              mote.vx *= 1 - 0.35 * dt;
+              mote.vy *= 1 - 0.35 * dt;
+            } else if (style === "comet") {
+              // Prawie bez dryfu — smuga siedzi na torze.
+              mote.vx *= 1 - 4 * dt;
+              mote.vy *= 1 - 4 * dt;
+            } else if (style === "ribbon") {
+              mote.spin += dt * 2.4;
+              mote.vx *= 1 - 2.2 * dt;
+              mote.vy *= 1 - 2.2 * dt;
             } else {
               mote.vx *= 1 - 0.8 * dt;
               mote.vy *= 1 - 0.8 * dt;
@@ -646,33 +659,69 @@ export function GameBoard({
       const trailStyle = callbacks.current.trail;
       if (trailStyle) {
         const cap =
-          trailStyle === "ribbon" || trailStyle === "comet"
-            ? 64
-            : trailStyle === "spark"
-              ? 36
-              : 48;
+          trailStyle === "comet"
+            ? 72
+            : trailStyle === "aurora"
+              ? 56
+              : trailStyle === "ribbon"
+                ? 60
+                : trailStyle === "spark"
+                  ? 36
+                  : 48;
         if (trailMotes.length < cap) {
-          const ang = Math.random() * Math.PI * 2;
-          const burst =
-            trailStyle === "ember"
-              ? 28 + Math.random() * 36
-              : trailStyle === "spark"
-                ? 10 + Math.random() * 40
-                : trailStyle === "aurora"
-                  ? 8 + Math.random() * 18
-                  : 4 + Math.random() * 12;
-          const count =
-            trailStyle === "spark" ? 2 : trailStyle === "ember" ? 2 : 1;
-          for (let n = 0; n < count && trailMotes.length < cap; n++) {
-            const a = ang + n * 0.9;
+          if (trailStyle === "comet") {
             trailMotes.push({
-              x: target.x + (Math.random() - 0.5) * 3,
-              y: target.y + (Math.random() - 0.5) * 3,
-              life: trailStyle === "comet" || trailStyle === "ribbon" ? 1.15 : 1,
-              vx: Math.cos(a) * burst * (0.35 + Math.random()),
-              vy: Math.sin(a) * burst * (0.35 + Math.random()),
-              spin: Math.random() * Math.PI * 2,
+              x: target.x,
+              y: target.y,
+              life: 1.35,
+              vx: 0,
+              vy: 0,
+              spin: 0,
             });
+          } else if (trailStyle === "aurora") {
+            const ang = Math.random() * Math.PI * 2;
+            const spread = 10 + Math.random() * 22;
+            trailMotes.push({
+              x: target.x + Math.cos(ang) * 4,
+              y: target.y + Math.sin(ang) * 4,
+              life: 1.2,
+              vx: Math.cos(ang) * spread,
+              vy: Math.sin(ang) * spread,
+              spin: ang,
+            });
+          } else if (trailStyle === "ribbon") {
+            const prev = trailMotes[trailMotes.length - 1];
+            const heading = prev
+              ? Math.atan2(target.y - prev.y, target.x - prev.x)
+              : Math.random() * Math.PI * 2;
+            trailMotes.push({
+              x: target.x,
+              y: target.y,
+              life: 1.05,
+              vx: 0,
+              vy: 0,
+              spin: heading,
+            });
+          } else {
+            const ang = Math.random() * Math.PI * 2;
+            const burst =
+              trailStyle === "ember"
+                ? 28 + Math.random() * 36
+                : trailStyle === "spark"
+                  ? 10 + Math.random() * 40
+                  : 4 + Math.random() * 12;
+            const count = trailStyle === "spark" || trailStyle === "ember" ? 2 : 1;
+            for (let n = 0; n < count && trailMotes.length < cap; n++) {
+              const a = ang + n * 0.9;
+              trailMotes.push({
+                x: target.x + (Math.random() - 0.5) * 3,
+                y: target.y + (Math.random() - 0.5) * 3,
+                life: 1,
+                vx: Math.cos(a) * burst * (0.35 + Math.random()),
+                vy: Math.sin(a) * burst * (0.35 + Math.random()),
+                spin: Math.random() * Math.PI * 2,
+              });
+            }
           }
         }
       }

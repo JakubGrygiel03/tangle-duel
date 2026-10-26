@@ -123,10 +123,20 @@ export class BoardRenderer {
     style: TrailId,
     time: number,
   ): void {
-    const theme = this.theme;
-    if (style === "ribbon" || style === "comet" || style === "aurora") {
-      this.drawTrailRibbon(ctx, trail, style, time);
+    if (style === "comet") {
+      this.drawCometTrail(ctx, trail);
+      return;
     }
+    if (style === "aurora") {
+      this.drawAuroraTrail(ctx, trail, time);
+      return;
+    }
+    if (style === "ribbon") {
+      this.drawRibbonTrail(ctx, trail, time);
+      return;
+    }
+
+    const theme = this.theme;
     for (const mote of trail) {
       if (mote.life <= 0) continue;
       const life = mote.life;
@@ -159,35 +169,6 @@ export class BoardRenderer {
         ctx.restore();
         continue;
       }
-      if (style === "aurora") {
-        ctx.beginPath();
-        ctx.ellipse(
-          mote.x,
-          mote.y,
-          2.2 + life * 4.5,
-          1.1 + life * 2.2,
-          mote.spin,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fillStyle = `rgba(${theme.moteCool}, ${0.28 * life})`;
-        ctx.fill();
-        continue;
-      }
-      if (style === "comet") {
-        ctx.beginPath();
-        ctx.arc(mote.x, mote.y, 1.4 + life * 2.8, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * life})`;
-        ctx.fill();
-        continue;
-      }
-      if (style === "ribbon") {
-        ctx.beginPath();
-        ctx.arc(mote.x, mote.y, 1.1 + life * 1.8, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${theme.moteCool}, ${0.4 * life})`;
-        ctx.fill();
-        continue;
-      }
       // dust — domyślny pył
       ctx.beginPath();
       ctx.arc(mote.x, mote.y, 1.6 + life * 2.4, 0, Math.PI * 2);
@@ -196,11 +177,90 @@ export class BoardRenderer {
     }
   }
 
-  private drawTrailRibbon(
+  /** Ostry ogon komety: jasna głowa + zwężająca się smuga wzdłuż toru. */
+  private drawCometTrail(ctx: CanvasRenderingContext2D, trail: readonly TrailMote[]): void {
+    if (trail.length === 0) return;
+    const theme = this.theme;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1]!;
+      const b = trail[i]!;
+      const life = Math.min(a.life, b.life);
+      if (life <= 0.02) continue;
+      const age = 1 - life;
+      // Stare odcinki cieńsze — klasyczny ogon.
+      const width = Math.max(0.6, (5.5 - age * 4.2) * life);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = `rgba(255, 248, 230, ${0.18 + 0.55 * life})`;
+      ctx.lineWidth = width;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.35 * life})`;
+      ctx.lineWidth = width * 0.35;
+      ctx.stroke();
+    }
+    const head = trail[trail.length - 1]!;
+    if (head.life > 0.05) {
+      const glow = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 10);
+      glow.addColorStop(0, `rgba(255, 255, 255, ${0.85 * head.life})`);
+      glow.addColorStop(0.45, `rgba(${theme.moteWarm}, ${0.45 * head.life})`);
+      glow.addColorStop(1, `rgba(${theme.moteWarm}, 0)`);
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.95 * head.life})`;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Zorza: szerokie, falujące plamy w dwóch barwach — bez twardej linii. */
+  private drawAuroraTrail(
     ctx: CanvasRenderingContext2D,
     trail: readonly TrailMote[],
-    style: TrailId,
-    _time: number,
+    time: number,
+  ): void {
+    const theme = this.theme;
+    ctx.save();
+    for (let i = 0; i < trail.length; i++) {
+      const mote = trail[i]!;
+      if (mote.life <= 0.02) continue;
+      const wave = Math.sin(time * 2.4 + mote.spin + i * 0.35);
+      const ox = Math.cos(mote.spin) * wave * 7;
+      const oy = Math.sin(mote.spin) * wave * 7;
+      const x = mote.x + ox;
+      const y = mote.y + oy;
+      const rx = 6 + mote.life * 14;
+      const ry = 2.5 + mote.life * 5.5;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, mote.spin + wave * 0.4, 0, Math.PI * 2);
+      ctx.fillStyle =
+        i % 2 === 0
+          ? `rgba(${theme.moteCool}, ${0.16 * mote.life})`
+          : `rgba(${theme.moteWarm}, ${0.12 * mote.life})`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * 0.45, ry * 0.55, mote.spin, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(210, 255, 245, ${0.14 * mote.life})`;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Wstęga: skręcona taśma o zmiennej szerokości i ostrzejszej krawędzi. */
+  private drawRibbonTrail(
+    ctx: CanvasRenderingContext2D,
+    trail: readonly TrailMote[],
+    time: number,
   ): void {
     if (trail.length < 2) return;
     const theme = this.theme;
@@ -212,25 +272,39 @@ export class BoardRenderer {
       const b = trail[i]!;
       const life = Math.min(a.life, b.life);
       if (life <= 0.02) continue;
-      const width =
-        style === "comet"
-          ? 1.2 + life * 4.5
-          : style === "aurora"
-            ? 2.4 + life * 6.5
-            : 1.6 + life * 3.2;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const twist = Math.sin(time * 3.2 + a.spin + i * 0.55);
+      const half = (2.2 + life * 5.5) * (0.35 + Math.abs(twist) * 0.9);
+      const ax1 = a.x + nx * half;
+      const ay1 = a.y + ny * half;
+      const ax2 = a.x - nx * half;
+      const ay2 = a.y - ny * half;
+      const bx1 = b.x + nx * half * 0.85;
+      const by1 = b.y + ny * half * 0.85;
+      const bx2 = b.x - nx * half * 0.85;
+      const by2 = b.y - ny * half * 0.85;
+
+      ctx.beginPath();
+      ctx.moveTo(ax1, ay1);
+      ctx.lineTo(bx1, by1);
+      ctx.lineTo(bx2, by2);
+      ctx.lineTo(ax2, ay2);
+      ctx.closePath();
+      ctx.fillStyle =
+        twist >= 0
+          ? `rgba(${theme.moteCool}, ${0.28 * life})`
+          : `rgba(${theme.moteWarm}, ${0.22 * life})`;
+      ctx.fill();
+
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
-      if (style === "ember") {
-        ctx.strokeStyle = `rgba(${theme.moteWarm}, ${0.35 * life})`;
-      } else if (style === "comet") {
-        ctx.strokeStyle = `rgba(255, 245, 220, ${0.42 * life})`;
-      } else if (style === "aurora") {
-        ctx.strokeStyle = `rgba(${theme.moteCool}, ${0.32 * life})`;
-      } else {
-        ctx.strokeStyle = `rgba(${theme.moteCool}, ${0.38 * life})`;
-      }
-      ctx.lineWidth = width;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.22 * life})`;
+      ctx.lineWidth = 1.1;
       ctx.stroke();
     }
     ctx.restore();

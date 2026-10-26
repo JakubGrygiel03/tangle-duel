@@ -95,11 +95,17 @@ type GhostSpot = {
   opacity: number;
 };
 
-type PocketPeak = {
-  index: number;
-  side: "left" | "right";
-  depth: number;
-};
+/** Minimalny odstęp środka obrazka od środka ścieżki (% szerokości karty). */
+const PATH_CLEAR_PCT = 26;
+/** Pas ozdób od krawędzi (%). */
+const GHOST_EDGE_MIN = 9;
+const GHOST_EDGE_MAX = 91;
+/**
+ * Odstęp między obrazkami w „jednostkach mapy” (Δwiersz + Δ% / 10).
+ * Za blisko = nachodzenie; za daleko = dziury — wypełniamy do limitu.
+ */
+const GHOST_GAP_MIN = 2.8;
+const GHOST_GAP_MAX = 4.6;
 
 function e(a: number, b: number): { a: number; b: number } {
   return { a, b };
@@ -257,9 +263,29 @@ function sketchFromConstellation(figure: Constellation): MapSketch {
   return { id: figure.id, solved: figure.solved, edges: figure.edges };
 }
 
+function ghostMapDist(
+  a: { index: number; left: number },
+  b: { index: number; left: number },
+): number {
+  const dy = Math.abs(a.index - b.index);
+  const dx = Math.abs(a.left - b.left) / 10;
+  return Math.hypot(dy, dx);
+}
+
+/** Ścieżka + węzeł zajmują pas — obrazek musi być poza nim na kilku sąsiednich rzędach. */
+function clearOfPath(leftPct: number, rowIndex: number, halfSizePct: number): boolean {
+  const need = PATH_CLEAR_PCT + halfSizePct;
+  for (let d = -2; d <= 2; d++) {
+    const row = rowIndex + d * 0.5;
+    if (row < 0) continue;
+    if (Math.abs(leftPct - pathX(row)) < need) return false;
+  }
+  return true;
+}
+
 /**
- * Gęstsza kompozycja: prawdziwe figury + wymyślone sylwetki w zatokach L/P.
- * Start/koniec krainy bez wpychania.
+ * Zapelnia planszę ozdobami: nigdy na/przy ścieżce, odstęp między obrazkami
+ * w limicie GHOST_GAP_MIN…GHOST_GAP_MAX (bez dziur i bez nachodzenia).
  */
 function buildGhostSpots(
   levels: readonly number[],
@@ -279,74 +305,117 @@ function buildGhostSpots(
   }
 
   const last = levels.length - 1;
-  const tipPad = Math.min(3, Math.max(2, Math.floor(levels.length * 0.06)));
-  const minGap = 2.6;
+  const tipPad = Math.min(2, Math.max(1, Math.floor(levels.length * 0.04)));
+  const sizeTier = [5.4, 3.1, 4.4, 3.6, 5.8, 2.8, 4.0, 4.9, 3.3, 5.1] as const;
 
-  // Kandydaci: obie strony przy każdym rzędzie z wyraźnym odchyleniem ścieżki.
-  const peaks: PocketPeak[] = [];
-  for (let index = tipPad; index <= last - tipPad; index++) {
-    const x = pathX(index);
-    const lean = x - 50;
-    const abs = Math.abs(lean);
-    if (abs < 12) continue;
-    const primary: "left" | "right" = lean >= 0 ? "left" : "right";
-    const depth = Math.min(1, (abs - 12) / 20);
-    peaks.push({ index, side: primary, depth });
-    // Po przeciwnej stronie — mniejszy duch w płytszej kieszeni.
-    if (abs >= 22 && index % 2 === 0) {
-      peaks.push({
-        index: index + 0.35,
-        side: primary === "left" ? "right" : "left",
-        depth: depth * 0.45,
-      });
+  type Candidate = { index: number; left: number; sizeRem: number; orderKey: number };
+  const candidates: Candidate[] = [];
+
+  // Siatka kandydatów w bezpiecznych pasach L/P — gęsto, potem filtr odstępu od ścieżki.
+  for (let index = tipPad; index <= last - tipPad; index += 1) {
+    const px = pathX(index);
+    const h = mapHash(seed, index * 97);
+    const sizeRem = sizeTier[index % sizeTier.length]! + (h - 0.5) * 0.55;
+    const halfSizePct = 4 + sizeRem * 1.1;
+
+    const leftLo = GHOST_EDGE_MIN;
+    const leftHi = px - PATH_CLEAR_PCT - halfSizePct;
+    const rightLo = px + PATH_CLEAR_PCT + halfSizePct;
+    const rightHi = GHOST_EDGE_MAX;
+
+    if (leftHi - leftLo >= 6) {
+      const t = 0.2 + mapHash(seed + 3, index * 13) * 0.6;
+      const left = leftLo + (leftHi - leftLo) * t;
+      if (clearOfPath(left, index, halfSizePct)) {
+        candidates.push({ index, left, sizeRem, orderKey: index * 2 });
+      }
+    }
+    if (rightHi - rightLo >= 6) {
+      const t = 0.2 + mapHash(seed + 9, index * 17) * 0.6;
+      const left = rightLo + (rightHi - rightLo) * t;
+      if (clearOfPath(left, index, halfSizePct)) {
+        candidates.push({
+          index: index + 0.15,
+          left,
+          sizeRem: sizeRem * (0.82 + mapHash(seed, index) * 0.2),
+          orderKey: index * 2 + 1,
+        });
+      }
     }
   }
 
-  const chosen: PocketPeak[] = [];
-  const cap = Math.min(14, Math.max(8, Math.floor(levels.length / 2.4)));
-  for (const peak of peaks) {
-    if (chosen.length >= cap) break;
-    const crowded = chosen.some((other) => {
-      const dy = Math.abs(other.index - peak.index);
-      if (other.side !== peak.side) return dy < minGap * 0.55;
-      return dy < minGap;
-    });
-    if (crowded) continue;
-    chosen.push(peak);
+  // Zachłannie: trzymaj min odstęp, potem domykaj dziury > max.
+  const placed: Candidate[] = [];
+  const tryPlace = (cand: Candidate): boolean => {
+    if (!clearOfPath(cand.left, cand.index, 4 + cand.sizeRem * 1.1)) return false;
+    for (const other of placed) {
+      if (ghostMapDist(cand, other) < GHOST_GAP_MIN) return false;
+    }
+    placed.push(cand);
+    return true;
+  };
+
+  for (const cand of candidates) tryPlace(cand);
+
+  // Domknij dziury: jeśli dwa sąsiednie (po sortowaniu Y) są za daleko — wstaw pośrodku.
+  let guard = 0;
+  while (guard++ < 48) {
+    placed.sort((a, b) => a.index - b.index || a.left - b.left);
+    let inserted = false;
+    for (let i = 0; i < placed.length - 1; i++) {
+      const a = placed[i]!;
+      const b = placed[i + 1]!;
+      if (ghostMapDist(a, b) <= GHOST_GAP_MAX) continue;
+      const midIndex = (a.index + b.index) / 2;
+      const px = pathX(midIndex);
+      const h = mapHash(seed + 21, i * 31 + guard);
+      const sizeRem = sizeTier[(i + guard) % sizeTier.length]!;
+      const halfSizePct = 4 + sizeRem * 1.1;
+      const preferLeft = h < 0.5;
+      const leftLo = GHOST_EDGE_MIN;
+      const leftHi = px - PATH_CLEAR_PCT - halfSizePct;
+      const rightLo = px + PATH_CLEAR_PCT + halfSizePct;
+      const rightHi = GHOST_EDGE_MAX;
+      let left: number | null = null;
+      if (preferLeft && leftHi - leftLo >= 6) {
+        left = leftLo + (leftHi - leftLo) * (0.3 + h * 0.4);
+      } else if (rightHi - rightLo >= 6) {
+        left = rightLo + (rightHi - rightLo) * (0.3 + h * 0.4);
+      } else if (leftHi - leftLo >= 6) {
+        left = leftLo + (leftHi - leftLo) * 0.5;
+      }
+      if (left === null) continue;
+      if (tryPlace({ index: midIndex, left, sizeRem, orderKey: 1000 + guard })) {
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) break;
   }
-  chosen.sort((a, b) => a.index - b.index);
 
-  const sizeTier = [5.8, 3.2, 4.6, 3.8, 6.2, 2.9, 4.2, 5.2, 3.5, 4.9] as const;
+  placed.sort((a, b) => a.index - b.index || a.left - b.left);
 
-  return chosen.map((peak, order) => {
-    const near = milestones.find((item) => Math.abs(item.index - peak.index) <= 2);
-    const useReal = Boolean(near) && order % 3 !== 2;
+  return placed.map((spot, order) => {
+    const near = milestones.find((item) => Math.abs(item.index - spot.index) <= 1.5);
+    const useReal = Boolean(near) && order % 4 === 0;
     const sketch = useReal
       ? near!.sketch
       : MAP_FANCY[(order * 3 + seed) % MAP_FANCY.length]!;
     const lit = useReal ? near!.lit : false;
-
-    const h1 = mapHash(seed, peak.index * 19 + (peak.side === "left" ? 2 : 7));
-    const h2 = mapHash(seed + 13, peak.index * 41 + order * 17);
+    const h1 = mapHash(seed, spot.orderKey * 19);
     const h3 = mapHash(seed + 37, order * 11 + sketch.id.length * 9);
-
-    const edge =
-      peak.side === "left" ? 12 + (1 - peak.depth) * 10 : 88 - (1 - peak.depth) * 10;
-    const left = edge + (h1 - 0.5) * 5;
-    const sizeRem = sizeTier[order % sizeTier.length]! + (h2 - 0.5) * 0.7;
-    const towardPath = peak.side === "left" ? 1 : -1;
+    const towardPath = spot.left < pathX(spot.index) ? 1 : -1;
     const rotateDeg = towardPath * (8 + h3 * 14) + (h1 - 0.5) * 10;
-    const opacity = lit ? 0.48 : useReal ? 0.17 : 0.12 + h2 * 0.08;
 
     return {
-      key: `pocket-${peak.side}-${peak.index.toFixed(2)}-${sketch.id}-${order}`,
+      key: `ghost-${spot.left.toFixed(1)}-${spot.index.toFixed(2)}-${sketch.id}`,
       sketch,
       lit,
-      left,
-      topRem: peak.index * ROW_REM + ROW_REM / 2 + (h2 - 0.5) * 0.85,
-      sizeRem,
+      left: spot.left,
+      topRem: spot.index * ROW_REM + ROW_REM / 2 + (h1 - 0.5) * 0.5,
+      sizeRem: spot.sizeRem,
       rotateDeg,
-      opacity,
+      opacity: lit ? 0.48 : useReal ? 0.18 : 0.13 + h1 * 0.07,
     };
   });
 }
