@@ -83,7 +83,6 @@ import {
   type QuestProgressInput,
   type QuestView,
 } from "@/lib/engine/quests";
-import { realmForLevel } from "@/lib/engine/realms";
 import {
   getTheme,
   isThemeUnlocked,
@@ -256,19 +255,7 @@ export function GameApp() {
             current.clearedCampaign.length > 0 ? Math.max(...current.clearedCampaign) : 0;
           next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
         }
-        const realm = realmForLevel(next);
-        const realmVisual = getTheme(realm.themeId);
-        const themeOpen = isThemeUnlocked(
-          realmVisual,
-          current.clearedCampaign,
-          current.endlessBest,
-          current.purchasedThemes,
-        );
-        return {
-          ...current,
-          level: next,
-          ...(themeOpen ? { themeId: realm.themeId } : {}),
-        };
+        return { ...current, level: next };
       });
     }
     setRun((value) => value + 1);
