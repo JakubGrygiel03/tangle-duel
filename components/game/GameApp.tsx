@@ -61,6 +61,7 @@ import {
 } from "@/lib/engine/themes";
 import {
   LOCALE_OPTIONS,
+  crystalPackPriceLabel,
   localeNativeName,
   resolveLocale,
   translatorForPreference,
@@ -1478,7 +1479,9 @@ function ShopScreen({
                     {copy.detail} · +{pack.crystals}
                   </span>
                 </span>
-                <span className="ui-accent text-[14px] font-medium tabular-nums">{pack.labelPrice}</span>
+                <span className="ui-accent text-[14px] font-medium tabular-nums">
+                  {crystalPackPriceLabel(pack.id, save.locale)}
+                </span>
               </button>
             );
           })}

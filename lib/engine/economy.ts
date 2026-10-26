@@ -78,25 +78,21 @@ export type CrystalPack = {
   name: string;
   detail: string;
   crystals: number;
-  /** Symulowana cena w sklepie (wyświetlana). */
-  labelPrice: string;
 };
 
 export const CRYSTAL_PACKS: readonly CrystalPack[] = [
-  { id: "small", name: "Mała paczka", detail: "Szybki zastrzyk", crystals: 80, labelPrice: "2 zł" },
+  { id: "small", name: "Mała paczka", detail: "Szybki zastrzyk", crystals: 80 },
   {
     id: "medium",
     name: "Średnia paczka",
     detail: "Najczęściej wybierana",
     crystals: 250,
-    labelPrice: "5 zł",
   },
   {
     id: "large",
     name: "Duża paczka",
     detail: "Zapas na sklep",
     crystals: 750,
-    labelPrice: "10 zł",
   },
 ];
 
