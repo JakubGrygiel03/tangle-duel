@@ -40,11 +40,13 @@ import {
 import {
   AD_COOLDOWN_MS,
   AD_CRYSTAL_REWARD,
+  CRYSTAL_PACKS,
   CRYSTAL_SHAPES,
   PERFECT_MOVE_BONUS,
   SOUND_PACKS,
   TRAIL_PRICE,
   themeCrystalPrice,
+  type CrystalPackId,
   type CrystalShapeId,
   type SoundPackId,
 } from "@/lib/engine/economy";
@@ -503,6 +505,15 @@ export function GameApp() {
                   });
                   setUnlockNote(save.trailOwned ? "Ślad przełączony" : "Ślad światła odblokowany");
                 }}
+                onBuyPack={(packId) => {
+                  const pack = CRYSTAL_PACKS.find((item) => item.id === packId);
+                  if (!pack) return;
+                  updateSave((current) => ({
+                    ...current,
+                    crystals: current.crystals + pack.crystals,
+                  }));
+                  setUnlockNote(`+${pack.crystals} kryształów · ${pack.name}`);
+                }}
                 onWatchAd={() => {
                   const now = Date.now();
                   let ok = false;
@@ -805,8 +816,11 @@ function AlbumScreen({
   onBack: () => void;
 }) {
   const open = new Set(unlocked);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = previewId ? CONSTELLATIONS.find((item) => item.id === previewId) : null;
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <ScreenHeader
         title="Album"
         kicker={`${open.size} / ${CONSTELLATIONS.length} konstelacji`}
@@ -816,10 +830,15 @@ function AlbumScreen({
         {CONSTELLATIONS.map((figure) => {
           const found = open.has(figure.id);
           return (
-            <div
+            <button
               key={figure.id}
+              type="button"
+              disabled={!found}
+              onClick={() => {
+                if (found) setPreviewId(figure.id);
+              }}
               className={`flex min-h-[9.4rem] flex-col items-center justify-center rounded-[1.2rem] border px-3 py-3.5 text-center backdrop-blur-md ${
-                found ? "ui-panel-star" : "ui-panel-locked"
+                found ? "ui-panel-star active:scale-[0.98]" : "ui-panel-locked"
               }`}
             >
               {found ? (
@@ -833,13 +852,37 @@ function AlbumScreen({
                   ? `${constellationKindLabel(figure.kind)} · poz. ${figure.level}`
                   : `Poziom ${figure.level}`}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
       <p className="ui-muted pb-2 text-center text-[12px]">
-        Co 5 poziomów — złóż zarys, a figura odblokuje się tutaj
+        Stuknij odblokowaną figurę, by zobaczyć podgląd
       </p>
+
+      {preview && (
+        <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/55 px-4 pb-[max(1.1rem,env(safe-area-inset-bottom))] pt-16 backdrop-blur-[3px]">
+          <div className="ui-panel flex flex-col items-center rounded-[1.45rem] border px-5 py-6">
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">
+              {constellationKindLabel(preview.kind)} · poziom {preview.level}
+            </p>
+            <h2 className="mt-2 text-[1.85rem] font-light tracking-[-0.03em]">{preview.name}</h2>
+            <div className="mt-5 grid place-items-center">
+              <ConstellationSketch figureId={preview.id} lit size={168} />
+            </div>
+            <p className="ui-muted mt-4 text-center text-[13px] leading-relaxed">
+              {preview.reveal}. Złóż ten zarys na planszy — kryształy wpadają w świetlne gniazda.
+            </p>
+            <button
+              type="button"
+              className="play-seal mt-5 h-14 w-full rounded-[1.15rem] text-[15px] font-medium"
+              onClick={() => setPreviewId(null)}
+            >
+              Zamknij
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -868,18 +911,29 @@ function LockedConstellationMark() {
   );
 }
 
-function ConstellationSketch({ figureId, lit }: { figureId: string; lit?: boolean }) {
+function ConstellationSketch({
+  figureId,
+  lit,
+  size = 72,
+}: {
+  figureId: string;
+  lit?: boolean;
+  size?: number;
+}) {
   const figure = CONSTELLATIONS.find((item) => item.id === figureId);
   if (!figure) return <span className="text-[1.6rem]">·</span>;
   const glow = lit !== false;
   const stroke = glow ? "var(--ui-warm)" : "#64748b";
   const fill = glow ? "var(--ui-ice)" : "#475569";
+  const filterId = `const-glow-${figure.id}-${size}`;
+  const strokeW = glow ? (size > 100 ? 0.07 : 0.085) : 0.055;
+  const nodeR = glow ? (size > 100 ? 0.075 : 0.09) : 0.065;
   return (
-    <svg width="72" height="72" viewBox="-1.15 -1.15 2.3 2.3" aria-hidden>
+    <svg width={size} height={size} viewBox="-1.15 -1.15 2.3 2.3" aria-hidden>
       {glow && (
         <defs>
-          <filter id={`const-glow-${figure.id}`} x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="0.04" result="blur" />
+          <filter id={filterId} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation={size > 100 ? 0.05 : 0.04} result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -887,7 +941,7 @@ function ConstellationSketch({ figureId, lit }: { figureId: string; lit?: boolea
           </filter>
         </defs>
       )}
-      <g filter={glow ? `url(#const-glow-${figure.id})` : undefined}>
+      <g filter={glow ? `url(#${filterId})` : undefined}>
         {figure.edges.map((edge, index) => {
           const a = figure.solved[edge.a];
           const b = figure.solved[edge.b];
@@ -900,20 +954,14 @@ function ConstellationSketch({ figureId, lit }: { figureId: string; lit?: boolea
               x2={b.x}
               y2={b.y}
               stroke={stroke}
-              strokeWidth={glow ? 0.085 : 0.055}
+              strokeWidth={strokeW}
               strokeLinecap="round"
               opacity={glow ? 0.95 : 0.45}
             />
           );
         })}
         {figure.solved.map((point, index) => (
-          <circle
-            key={index}
-            cx={point.x}
-            cy={point.y}
-            r={glow ? 0.09 : 0.065}
-            fill={fill}
-          />
+          <circle key={index} cx={point.x} cy={point.y} r={nodeR} fill={fill} />
         ))}
       </g>
     </svg>
@@ -1056,6 +1104,7 @@ function ShopScreen({
   onPickSound,
   onBuySound,
   onBuyTrail,
+  onBuyPack,
   onWatchAd,
 }: {
   save: GameSave;
@@ -1068,6 +1117,7 @@ function ShopScreen({
   onPickSound: (id: SoundPackId) => void;
   onBuySound: (id: SoundPackId, price: number) => void;
   onBuyTrail: () => void;
+  onBuyPack: (id: CrystalPackId) => void;
   onWatchAd: () => void;
 }) {
   const adReady = Date.now() - save.lastAdAt >= AD_COOLDOWN_MS;
@@ -1203,11 +1253,14 @@ function ShopScreen({
                   else if (canBuy) onBuySound(pack.id, pack.price);
                   else onNote(`Potrzebujesz ${pack.price} kryształów`);
                 }}
-                className={`${tile} justify-between ${
+                className={`${tile} ${
                   active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
                 }`}
               >
-                <span>
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                  <SoundPackIcon id={pack.id} active={owned || canBuy} />
+                </span>
+                <span className="min-w-0 flex-1">
                   <span className="block text-[17px] font-normal">{pack.name}</span>
                   <span className="ui-muted mt-1 block text-[13px]">
                     {owned ? (active ? "Aktywne" : pack.detail) : pack.detail}
@@ -1253,16 +1306,36 @@ function ShopScreen({
           </span>
         </button>
 
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">
+          Paczki kryształów
+        </p>
+        <div className="flex flex-col gap-3">
+          {CRYSTAL_PACKS.map((pack) => (
+            <button
+              key={pack.id}
+              type="button"
+              onClick={() => onBuyPack(pack.id)}
+              className={`${tile}`}
+            >
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                <CrystalPackIcon size={pack.id} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[17px] font-normal">{pack.name}</span>
+                <span className="ui-muted mt-1 block text-[13px]">
+                  {pack.detail} · +{pack.crystals}
+                </span>
+              </span>
+              <span className="ui-accent text-[14px] font-medium tabular-nums">{pack.labelPrice}</span>
+            </button>
+          ))}
+        </div>
+
         <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Wsparcie</p>
         <div className="flex flex-col gap-3">
           <SettingRow
             label="Usuń reklamy"
             detail="Wkrótce — jednorazowy zakup"
-            onClick={() => onNote("Płatności wkrótce")}
-          />
-          <SettingRow
-            label="Paczka kryształów"
-            detail="Wkrótce — mała / średnia / duża"
             onClick={() => onNote("Płatności wkrótce")}
           />
         </div>
@@ -1286,6 +1359,73 @@ function TrailIcon({ active }: { active: boolean }) {
         fillOpacity="0.95"
       />
       <path d="M21.2 7.6 23.4 10.2 21.2 12.8 19 10.2Z" fill={spark} fillOpacity="0.9" />
+    </svg>
+  );
+}
+
+function SoundPackIcon({ id, active }: { id: SoundPackId; active: boolean }) {
+  const ink = active ? "var(--ui-ice)" : "#64748b";
+  const accent = active ? "var(--ui-warm)" : "#94a3b8";
+  if (id === "chimes") {
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden fill="none">
+        <path d="M12 3.2v2.4" stroke={accent} strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M7.2 8.2v8.2M12 7.2v10.2M16.8 8.8v7" stroke={ink} strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="7.2" cy="17.6" r="1.5" fill={accent} />
+        <circle cx="12" cy="18.6" r="1.6" fill={accent} />
+        <circle cx="16.8" cy="17" r="1.5" fill={accent} />
+      </svg>
+    );
+  }
+  if (id === "lute") {
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden fill="none">
+        <ellipse cx="10.2" cy="14.2" rx="5.2" ry="5.6" stroke={ink} strokeWidth="1.4" />
+        <path d="M14.2 9.4 19.6 4.2" stroke={ink} strokeWidth="1.4" strokeLinecap="round" />
+        <circle cx="19.8" cy="3.9" r="1.3" fill={accent} />
+        <circle cx="10.2" cy="14.2" r="1.6" fill={accent} />
+      </svg>
+    );
+  }
+  if (id === "glass") {
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden fill="none">
+        <path d="M5.2 16.5h13.6" stroke={ink} strokeWidth="1.4" strokeLinecap="round" />
+        <rect x="6.2" y="8.2" width="2.4" height="8" rx="1.1" fill={ink} opacity="0.85" />
+        <rect x="10.8" y="6.4" width="2.4" height="9.8" rx="1.1" fill={accent} />
+        <rect x="15.4" y="9.2" width="2.4" height="7" rx="1.1" fill={ink} opacity="0.85" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden fill="none">
+      <path
+        d="M6.2 17.2V8.4c0-1.2.7-2 2.1-2.4L16.4 4.2v12.2"
+        stroke={ink}
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M6.2 17.2a2.1 2.1 0 1 0 4.2 0 2.1 2.1 0 0 0-4.2 0ZM16.4 16.4a2.1 2.1 0 1 0 4.2 0 2.1 2.1 0 0 0-4.2 0Z" fill={accent} />
+    </svg>
+  );
+}
+
+function CrystalPackIcon({ size }: { size: CrystalPackId }) {
+  const count = size === "small" ? 1 : size === "medium" ? 2 : 3;
+  return (
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden>
+      {Array.from({ length: count }, (_, index) => {
+        const x = 5 + index * 6.2;
+        const y = 8 - index * 1.2;
+        return (
+          <path
+            key={index}
+            d={`M${x + 4} ${y} L${x + 8} ${y + 5} L${x + 4} ${y + 10} L${x} ${y + 5}Z`}
+            fill={index === count - 1 ? "var(--ui-warm)" : "var(--ui-ice)"}
+            fillOpacity={0.55 + index * 0.2}
+          />
+        );
+      })}
     </svg>
   );
 }

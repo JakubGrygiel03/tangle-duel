@@ -71,6 +71,35 @@ export const SOUND_PACKS: readonly SoundPack[] = [
 
 export const TRAIL_PRICE = 200;
 
+export type CrystalPackId = "small" | "medium" | "large";
+
+export type CrystalPack = {
+  id: CrystalPackId;
+  name: string;
+  detail: string;
+  crystals: number;
+  /** Symulowana cena w sklepie (wyświetlana). */
+  labelPrice: string;
+};
+
+export const CRYSTAL_PACKS: readonly CrystalPack[] = [
+  { id: "small", name: "Mała paczka", detail: "Szybki zastrzyk", crystals: 80, labelPrice: "4,99 zł" },
+  {
+    id: "medium",
+    name: "Średnia paczka",
+    detail: "Najczęściej wybierana",
+    crystals: 220,
+    labelPrice: "11,99 zł",
+  },
+  {
+    id: "large",
+    name: "Duża paczka",
+    detail: "Zapas na sklep",
+    crystals: 600,
+    labelPrice: "24,99 zł",
+  },
+];
+
 export function soundPackById(id: string | null | undefined): SoundPack {
   return SOUND_PACKS.find((pack) => pack.id === id) ?? SOUND_PACKS[0]!;
 }
