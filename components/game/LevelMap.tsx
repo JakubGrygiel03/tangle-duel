@@ -284,8 +284,9 @@ function clearOfPath(leftPct: number, rowIndex: number, halfSizePct: number): bo
 }
 
 /**
- * Zapelnia planszę ozdobami: nigdy na/przy ścieżce, odstęp między obrazkami
- * w limicie GHOST_GAP_MIN…GHOST_GAP_MAX (bez dziur i bez nachodzenia).
+ * Ozdoby tylko w pustych kieszeniach naprzeciw łuków ścieżki
+ * (np. wys. 3 → lewa, 6 → prawa, 31 → prawa, 34 → lewa).
+ * Sam start/koniec krainy zostawiamy wolny — czytelne węzły.
  */
 function buildGhostSpots(
   levels: readonly number[],
@@ -305,54 +306,55 @@ function buildGhostSpots(
   }
 
   const last = levels.length - 1;
+  /** Oddech przy pierwszym i ostatnim węźle — bez ozdób na starcie „Tu jesteś”. */
+  const tipPad = 2;
   const sizeTier = [5.4, 3.1, 4.4, 3.6, 5.8, 2.8, 4.0, 4.9, 3.3, 5.1] as const;
-  /** Strefa „brzegu” krainy — tu dokladamy ekstra ozdoby (srodek juz jest gesty). */
-  const tipZone = Math.max(4, Math.floor(levels.length * 0.14));
 
   type Candidate = { index: number; left: number; sizeRem: number; orderKey: number };
   const candidates: Candidate[] = [];
 
-  const pushLaneCandidates = (index: number, bias: number) => {
+  /** Tylko strona przeciwna do ścieżki, gdy łuk jest wyraźny. */
+  const pushPocket = (index: number, bias: number) => {
+    if (index < tipPad || index > last - tipPad) return;
     const px = pathX(index);
-    const h = mapHash(seed + bias, index * 97 + bias * 3);
-    const sizeRem = sizeTier[(index + bias) % sizeTier.length]! + (h - 0.5) * 0.55;
+    const lean = px - 50;
+    if (Math.abs(lean) < 16) return;
+    const side: "left" | "right" = lean >= 0 ? "left" : "right";
+    const h = mapHash(seed + bias, index * 97 + bias);
+    const sizeRem = sizeTier[(index + bias) % sizeTier.length]! + (h - 0.5) * 0.5;
     const halfSizePct = 4 + sizeRem * 1.1;
     const leftLo = GHOST_EDGE_MIN;
     const leftHi = px - PATH_CLEAR_PCT - halfSizePct;
     const rightLo = px + PATH_CLEAR_PCT + halfSizePct;
     const rightHi = GHOST_EDGE_MAX;
-
-    if (leftHi - leftLo >= 5) {
-      const t = 0.15 + mapHash(seed + 3 + bias, index * 13) * 0.7;
-      const left = leftLo + (leftHi - leftLo) * t;
-      if (clearOfPath(left, index, halfSizePct)) {
-        candidates.push({ index, left, sizeRem, orderKey: index * 4 + bias });
-      }
+    let left: number | null = null;
+    if (side === "left" && leftHi - leftLo >= 6) {
+      const t = 0.2 + mapHash(seed + 3, index * 13 + bias) * 0.55;
+      left = leftLo + (leftHi - leftLo) * t;
+    } else if (side === "right" && rightHi - rightLo >= 6) {
+      const t = 0.2 + mapHash(seed + 9, index * 17 + bias) * 0.55;
+      left = rightLo + (rightHi - rightLo) * t;
     }
-    if (rightHi - rightLo >= 5) {
-      const t = 0.15 + mapHash(seed + 9 + bias, index * 17) * 0.7;
-      const left = rightLo + (rightHi - rightLo) * t;
-      if (clearOfPath(left, index, halfSizePct)) {
-        candidates.push({
-          index: index + 0.12,
-          left,
-          sizeRem: sizeRem * (0.8 + mapHash(seed, index + bias) * 0.25),
-          orderKey: index * 4 + bias + 1,
-        });
-      }
-    }
+    if (left === null) return;
+    if (!clearOfPath(left, index, halfSizePct)) return;
+    candidates.push({
+      index,
+      left,
+      sizeRem,
+      orderKey: index * 10 + bias,
+    });
   };
 
-  // Cala kraina od pierwszego do ostatniego rzedu (bez wycinania tipow).
-  for (let index = 0; index <= last; index += 1) {
-    pushLaneCandidates(index, 0);
-  }
-  // Dodatkowa siatka na poczatku i koncu — gestejsza.
-  for (let index = 0; index <= tipZone; index += 1) {
-    pushLaneCandidates(index + 0.4, 2);
-  }
-  for (let index = Math.max(0, last - tipZone); index <= last; index += 1) {
-    pushLaneCandidates(index + 0.55, 4);
+  // Szczyty łuków (lokalne maksima |lean|) + sąsiednie rzędy w tej samej kieszeni.
+  for (let index = tipPad; index <= last - tipPad; index++) {
+    const abs = Math.abs(pathX(index) - 50);
+    const prev = Math.abs(pathX(index - 1) - 50);
+    const next = Math.abs(pathX(index + 1) - 50);
+    const isApex = abs >= 16 && abs + 0.2 >= prev && abs + 0.2 >= next;
+    if (!isApex) continue;
+    pushPocket(index, 0);
+    pushPocket(index - 0.9, 1);
+    pushPocket(index + 0.9, 2);
   }
 
   const placed: Candidate[] = [];
@@ -365,60 +367,36 @@ function buildGhostSpots(
     return true;
   };
 
-  // Najpierw brzegi, potem srodek — zeby tipy nie odpadaly przez gesty srodek.
-  const tipFirst = [...candidates].sort((a, b) => {
-    const aTip = a.index <= tipZone || a.index >= last - tipZone ? 0 : 1;
-    const bTip = b.index <= tipZone || b.index >= last - tipZone ? 0 : 1;
-    return aTip - bTip || a.index - b.index;
+  // Najpierw najgłębsze kieszenie.
+  candidates.sort((a, b) => {
+    const da = Math.abs(pathX(a.index) - 50);
+    const db = Math.abs(pathX(b.index) - 50);
+    return db - da || a.index - b.index;
   });
-  for (const cand of tipFirst) tryPlace(cand);
+  for (const cand of candidates) tryPlace(cand);
 
-  const makeFillAt = (midIndex: number, salt: number): boolean => {
-    const px = pathX(midIndex);
-    const h = mapHash(seed + 21, salt);
-    const sizeRem = sizeTier[salt % sizeTier.length]!;
-    const halfSizePct = 4 + sizeRem * 1.1;
-    const leftLo = GHOST_EDGE_MIN;
-    const leftHi = px - PATH_CLEAR_PCT - halfSizePct;
-    const rightLo = px + PATH_CLEAR_PCT + halfSizePct;
-    const rightHi = GHOST_EDGE_MAX;
-    const preferLeft = h < 0.5;
-    let left: number | null = null;
-    if (preferLeft && leftHi - leftLo >= 5) {
-      left = leftLo + (leftHi - leftLo) * (0.25 + h * 0.5);
-    } else if (rightHi - rightLo >= 5) {
-      left = rightLo + (rightHi - rightLo) * (0.25 + h * 0.5);
-    } else if (leftHi - leftLo >= 5) {
-      left = leftLo + (leftHi - leftLo) * 0.5;
-    }
-    if (left === null) return false;
-    return tryPlace({ index: midIndex, left, sizeRem, orderKey: 2000 + salt });
-  };
-
-  // Domknij dziury w tym lukę od góry/dół krainy (wirtualne kotwice).
+  // Domknij dziury tylko między istniejącymi (bez wpychania w tip start/koniec).
   let guard = 0;
-  while (guard++ < 64) {
+  while (guard++ < 40) {
     placed.sort((a, b) => a.index - b.index || a.left - b.left);
-    const chain: { index: number; left: number }[] = [
-      { index: -0.2, left: 18 },
-      ...placed,
-      { index: last + 0.2, left: 82 },
-    ];
     let inserted = false;
-    for (let i = 0; i < chain.length - 1; i++) {
-      const a = chain[i]!;
-      const b = chain[i + 1]!;
+    for (let i = 0; i < placed.length - 1; i++) {
+      const a = placed[i]!;
+      const b = placed[i + 1]!;
       if (ghostMapDist(a, b) <= GHOST_GAP_MAX) continue;
-      const midIndex = Math.max(0, Math.min(last, (a.index + b.index) / 2));
-      if (makeFillAt(midIndex, i * 31 + guard * 7)) {
-        inserted = true;
-        break;
+      const midIndex = (a.index + b.index) / 2;
+      if (midIndex < tipPad || midIndex > last - tipPad) continue;
+      const before = candidates.length;
+      pushPocket(midIndex, 20 + guard);
+      pushPocket(midIndex + 0.2, 30 + guard);
+      const fresh = candidates.slice(before);
+      for (const cand of fresh) {
+        if (tryPlace(cand)) {
+          inserted = true;
+          break;
+        }
       }
-      // Druga strona, jesli pierwsza nie weszla.
-      if (makeFillAt(midIndex + 0.25, i * 31 + guard * 7 + 3)) {
-        inserted = true;
-        break;
-      }
+      if (inserted) break;
     }
     if (!inserted) break;
   }
@@ -939,24 +917,6 @@ function MapAtmosphere({ theme, seed }: { theme: VisualTheme; seed: number }) {
     const out: { left: number; top: number; size: number; delay: number; dur: number; warm: boolean }[] =
       [];
     let n = (seed * 2654435761) >>> 0;
-    // Kotwice na górze i dole — środek i tak wychodzi gesty z losowych.
-    const anchors: { left: number; top: number; warm: boolean }[] = [
-      { left: 18, top: 8, warm: true },
-      { left: 78, top: 12, warm: false },
-      { left: 22, top: 88, warm: false },
-      { left: 74, top: 92, warm: true },
-    ];
-    for (const anchor of anchors) {
-      n = (n * 1664525 + 1013904223) >>> 0;
-      out.push({
-        left: anchor.left + ((n % 80) - 40) / 10,
-        top: anchor.top + ((n % 60) - 30) / 10,
-        size: 88 + (n % 70),
-        delay: (n % 40) / 10,
-        dur: 10 + (n % 50) / 10,
-        warm: anchor.warm,
-      });
-    }
     for (let i = 0; i < 5; i++) {
       n = (n * 1664525 + 1013904223) >>> 0;
       const left = 6 + (n % 780) / 10;
