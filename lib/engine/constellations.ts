@@ -450,20 +450,37 @@ export function constellationKindLabel(kind: ConstellationKind): string {
 /** Bonus za pierwsze odkrycie konstelacji. */
 export const CONSTELLATION_CRYSTAL_REWARD = 30;
 
-/** Promień „studni” magnesu względem promienia areny. */
-export const MAGNET_RADIUS_FACTOR = 0.22;
-/** Siła delikatnego przyciągania (0–1) w stronę gniazda. */
-export const MAGNET_PULL = 0.55;
-/** Po puszczeniu — dociągnij, jeśli bliżej niż to. */
-export const MAGNET_SNAP_FACTOR = 0.16;
+/** Promień „studni” magnesu względem promienia areny. Krótki — tylko przy gnieździe. */
+export const MAGNET_RADIUS_FACTOR = 0.1;
+/** Po puszczeniu — dociągnij, jeśli palec jest już w studni. */
+export const MAGNET_SNAP_FACTOR = 0.07;
 /** Dopasowanie figury: węzeł w swoim gnieździe. */
 export const MATCH_RADIUS_FACTOR = 0.18;
-/** Gdy układ bez przecięć — delikatnie dociągnij do gniazd. */
-export const SETTLE_PULL = 0.12;
+
+function ownWell(outline: readonly Point[], index: number | undefined): Point | null {
+  if (index === undefined) return null;
+  return outline[index] ?? null;
+}
+
+/** Inny kryształ już siedzi w tym gnieździe — nie wciągaj drugiego. */
+function wellTaken(
+  home: Point,
+  selfId: number,
+  nodes: readonly GraphNode[] | undefined,
+  arenaRadius: number,
+): boolean {
+  if (!nodes) return false;
+  const limit = Math.max(14, arenaRadius * 0.055);
+  for (const node of nodes) {
+    if (node.id === selfId) continue;
+    if (Math.hypot(node.x - home.x, node.y - home.y) <= limit) return true;
+  }
+  return false;
+}
 
 /**
- * Delikatny magnes — najpierw własne gniazdo (ID węzła), potem najbliższe.
- * Dzięki temu struny składają się w właściwy kształt.
+ * Delikatny magnes wyłącznie do własnego gniazda i tylko z bliska.
+ * Cudze studnie są ignorowane, żeby figura nie składała się w obcy kształt.
  */
 export function magnetTowardOutline(
   x: number,
@@ -471,74 +488,42 @@ export function magnetTowardOutline(
   outline: readonly Point[],
   arenaRadius: number,
   preferIndex?: number,
+  nodes?: readonly GraphNode[],
 ): Point {
-  if (outline.length === 0) return { x, y };
-  const reach = Math.max(36, arenaRadius * MAGNET_RADIUS_FACTOR);
-  const home = preferIndex !== undefined ? outline[preferIndex] : undefined;
-  if (home) {
-    const homeDist = Math.hypot(home.x - x, home.y - y);
-    if (homeDist <= reach * 1.5) {
-      const t = MAGNET_PULL * (1 - homeDist / (reach * 1.5));
-      return {
-        x: x + (home.x - x) * t,
-        y: y + (home.y - y) * t,
-      };
-    }
-  }
-
-  let best = -1;
-  let bestDist = Infinity;
-  for (let i = 0; i < outline.length; i++) {
-    const socket = outline[i];
-    if (!socket) continue;
-    const dist = Math.hypot(socket.x - x, socket.y - y);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  if (best < 0 || bestDist > reach) return { x, y };
-  const socket = outline[best]!;
-  const t = MAGNET_PULL * 0.75 * (1 - bestDist / reach);
+  const home = ownWell(outline, preferIndex);
+  if (!home) return { x, y };
+  if (wellTaken(home, preferIndex ?? -1, nodes, arenaRadius)) return { x, y };
+  const reach = Math.max(20, arenaRadius * MAGNET_RADIUS_FACTOR);
+  const dist = Math.hypot(home.x - x, home.y - y);
+  if (dist > reach || dist < 0.4) return { x, y };
+  const closeness = 1 - dist / reach;
+  const pull = 0.08 + 0.42 * closeness * closeness;
   return {
-    x: x + (socket.x - x) * t,
-    y: y + (socket.y - y) * t,
+    x: x + (home.x - x) * pull,
+    y: y + (home.y - y) * pull,
   };
 }
 
-/** Przy puszczeniu: dociągnij do własnego gniazda, jeśli blisko. */
+/** Przy puszczeniu: dociągnij do własnego gniazda, jeśli palec jest w studni. */
 export function snapToOutlineIfClose(
   x: number,
   y: number,
   outline: readonly Point[],
   arenaRadius: number,
   preferIndex?: number,
+  nodes?: readonly GraphNode[],
 ): Point {
-  if (outline.length === 0) return { x, y };
-  const snap = Math.max(28, arenaRadius * MAGNET_SNAP_FACTOR * 1.5);
-  const home = preferIndex !== undefined ? outline[preferIndex] : undefined;
-  if (home && Math.hypot(home.x - x, home.y - y) <= snap * 1.4) {
-    return { x: home.x, y: home.y };
-  }
-  let best = -1;
-  let bestDist = Infinity;
-  for (let i = 0; i < outline.length; i++) {
-    const socket = outline[i];
-    if (!socket) continue;
-    const dist = Math.hypot(socket.x - x, socket.y - y);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  if (best < 0 || bestDist > snap) return { x, y };
-  const socket = outline[best]!;
-  return { x: socket.x, y: socket.y };
+  const home = ownWell(outline, preferIndex);
+  if (!home) return { x, y };
+  if (wellTaken(home, preferIndex ?? -1, nodes, arenaRadius)) return { x, y };
+  const snap = Math.max(16, arenaRadius * MAGNET_SNAP_FACTOR);
+  if (Math.hypot(home.x - x, home.y - y) > snap) return { x, y };
+  return { x: home.x, y: home.y };
 }
 
 /**
- * Po rozplątaniu (0 przecięć) dociągnij węzły do własnych gniazd,
- * żeby odliczanie startowało, gdy figura wygląda już dobrze.
+ * Po rozplątaniu dosuń tylko kryształy, które już stoją przy swoim gnieździe.
+ * Dalekie węzły zostają tam, gdzie gracz je położył.
  */
 export function settleNodesTowardOutline(
   nodes: readonly GraphNode[],
@@ -546,16 +531,16 @@ export function settleNodesTowardOutline(
   arenaRadius: number,
 ): void {
   if (!outline.length || nodes.length !== outline.length) return;
-  const reach = Math.max(48, arenaRadius * 0.42);
+  const reach = Math.max(18, arenaRadius * MAGNET_RADIUS_FACTOR);
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     const home = outline[i];
     if (!node || !home) continue;
+    if (wellTaken(home, node.id, nodes, arenaRadius)) continue;
     const dist = Math.hypot(home.x - node.x, home.y - node.y);
     if (dist > reach || dist < 0.5) continue;
-    const t = SETTLE_PULL * Math.min(1, 1 - dist / reach);
-    node.tx = node.x + (home.x - node.x) * (0.35 + t);
-    node.ty = node.y + (home.y - node.y) * (0.35 + t);
+    node.tx = node.x + (home.x - node.x) * 0.14;
+    node.ty = node.y + (home.y - node.y) * 0.14;
   }
 }
 

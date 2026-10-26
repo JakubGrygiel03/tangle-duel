@@ -50,7 +50,13 @@ import {
   type CrystalShapeId,
   type SoundPackId,
 } from "@/lib/engine/economy";
-import { CAMPAIGN_LEVELS, isEndlessUnlocked, type ArenaChrome } from "@/lib/engine/graph";
+import {
+  CAMPAIGN_LEVELS,
+  ECHO_DIFFICULTY,
+  MASTER_START_DIFFICULTY,
+  isEndlessUnlocked,
+  type ArenaChrome,
+} from "@/lib/engine/graph";
 import {
   getTheme,
   isThemeUnlocked,
@@ -134,19 +140,17 @@ export function GameApp() {
     );
     setRushResult(null);
     setDailySeed(undefined);
-    updateSave((current) => {
-      let next = Math.max(1, Math.floor(level));
-      if (
-        (mode === "campaign" || mode === "master" || mode === "echo") &&
-        next <= CAMPAIGN_LEVELS &&
-        !isLevelPlayable(next, current.clearedCampaign)
-      ) {
-        const peak =
-          current.clearedCampaign.length > 0 ? Math.max(...current.clearedCampaign) : 0;
-        next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
-      }
-      return { ...current, level: next };
-    });
+    if (mode === "campaign") {
+      updateSave((current) => {
+        let next = Math.max(1, Math.floor(level));
+        if (next <= CAMPAIGN_LEVELS && !isLevelPlayable(next, current.clearedCampaign)) {
+          const peak =
+            current.clearedCampaign.length > 0 ? Math.max(...current.clearedCampaign) : 0;
+          next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
+        }
+        return { ...current, level: next };
+      });
+    }
     setRun((value) => value + 1);
     setScreen("play");
   };
@@ -221,7 +225,7 @@ export function GameApp() {
 
   const onCleared = (info: ClearInfo) => {
     let note: string | null = null;
-    if (playMode === "rush") return;
+    if (playMode === "rush" || playMode === "master" || playMode === "echo") return;
 
     if (playMode === "daily") {
       const challenge = getDailyChallenge();
@@ -313,7 +317,15 @@ export function GameApp() {
       stage = (
         <GameBoard
           key={run}
-          level={save.level}
+          level={
+            playMode === "rush"
+              ? 1
+              : playMode === "master"
+                ? MASTER_START_DIFFICULTY
+                : playMode === "echo"
+                  ? ECHO_DIFFICULTY
+                  : save.level
+          }
           muted={save.muted}
           haptics={save.haptics}
           theme={theme}
@@ -338,7 +350,7 @@ export function GameApp() {
           onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
           onCleared={onCleared}
           onAdvance={(level) => {
-            if (playMode === "daily" || playMode === "rush") return;
+            if (playMode !== "campaign") return;
             updateSave((current) => ({ ...current, level }));
           }}
           onRushOver={(score) => setRushResult(score)}
@@ -430,8 +442,8 @@ export function GameApp() {
                 t={t}
                 onBack={() => setScreen("menu")}
                 onRush={() => play(1, "rush")}
-                onMaster={() => play(Math.min(save.level, CAMPAIGN_LEVELS) || 1, "master")}
-                onEcho={() => play(Math.min(save.level, CAMPAIGN_LEVELS) || 1, "echo")}
+                onMaster={() => play(MASTER_START_DIFFICULTY, "master")}
+                onEcho={() => play(ECHO_DIFFICULTY, "echo")}
               />
             )}
             {visible === "album" && (

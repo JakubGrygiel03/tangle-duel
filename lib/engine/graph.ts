@@ -1,5 +1,6 @@
 import {
   constellationForLevel,
+  MATCH_RADIUS_FACTOR,
   type ConstellationId,
 } from "./constellations";
 import { findIntersections, segmentIntersection } from "./intersections";
@@ -56,6 +57,8 @@ export type LevelPlan = {
   tangled: Point[];
   edges: GraphEdge[];
   crossings: number;
+  /** Policzone przeciągnięcia dla układu generycznego. */
+  minimumMoves?: number;
   constellationName?: string;
   constellationId?: ConstellationId;
   isConstellation?: boolean;
@@ -73,6 +76,15 @@ export const TOUCH_RADIUS = 44;
 
 /** Kampania ma stałą długość; potem idą levele nieskończone. */
 export const CAMPAIGN_LEVELS = 60;
+/** Błyskawica: własna drabinka, bez figur z kampanii. */
+export const RUSH_MAX_DIFFICULTY = 24;
+/** Mistrz startuje powyżej samouczka i gęstnieje z każdym układem. */
+export const MASTER_START_DIFFICULTY = 5;
+export const MASTER_MAX_DIFFICULTY = 36;
+/** Echo trzyma jedną wagę układów — zmienia się wzór, nie trudność. */
+export const ECHO_DIFFICULTY = 8;
+
+export type PuzzleVariant = "campaign" | "generic";
 /** Górny sensowny limit węzłów pod kciukiem. */
 export const MAX_NODES = 16;
 
@@ -492,9 +504,14 @@ function tanglePoints(
   let points = layoutFromOrder(order, inner);
   if (!points) return null;
   let score = crossingCount(points, edges);
-  const swaps = count * 36;
+  const ceiling = minCrossings + Math.max(1, Math.round(minCrossings * 0.3));
+  let bestPoints = points;
+  let bestScore = score;
+  let bestRank = crossRank(score, minCrossings);
+  const swaps = count * 48;
 
-  for (let step = 0; step < swaps && score < minCrossings; step++) {
+  for (let step = 0; step < swaps; step++) {
+    if (score >= minCrossings && score <= ceiling) break;
     const left = Math.floor(rnd() * count);
     const right = Math.floor(rnd() * count);
     if (left === right) continue;
@@ -506,17 +523,35 @@ function tanglePoints(
 
     const trial = layoutFromOrder(order, inner);
     const next = trial ? crossingCount(trial, edges) : -1;
-    if (trial && next >= score) {
+    const nextRank = crossRank(next, minCrossings);
+    if (trial && next >= 1 && nextRank < bestRank) {
       points = trial;
       score = next;
+      bestPoints = trial;
+      bestScore = next;
+      bestRank = nextRank;
     } else {
       order[left] = leftId;
       order[right] = rightId;
     }
   }
 
-  if (score < 1) return null;
-  return { points, crossings: score };
+  if (bestScore < 1) return null;
+  return { points: bestPoints, crossings: bestScore };
+}
+
+/** Im bliżej progu poziomu, tym lepiej. Lekka kara za zejście poniżej progu. */
+function crossRank(count: number, target: number): number {
+  if (count < 1) return 10_000;
+  return Math.abs(count - target) + (count < target ? 2 : 0);
+}
+
+function targetCrossings(level: number, variant: PuzzleVariant): number {
+  if (variant === "campaign") {
+    const figure = constellationForLevel(level);
+    if (figure) return Math.max(2, Math.min(4, Math.floor(figure.solved.length / 2)));
+  }
+  return Math.max(1, specsForLevel(level).minCrossings);
 }
 
 function nodesFrom(points: readonly Point[]): GraphNode[] {
@@ -553,8 +588,12 @@ function scrambleOnCircle(
   return { points: placed, crossings: crossingCount(placed, edges) };
 }
 
-export function planLevel(level: number, seed: number): LevelPlan | null {
-  const figure = constellationForLevel(level);
+export function planLevel(
+  level: number,
+  seed: number,
+  variant: PuzzleVariant = "campaign",
+): LevelPlan | null {
+  const figure = variant === "generic" ? null : constellationForLevel(level);
   if (figure) {
     const rnd = mulberry32(seed ^ 0xc0ffee);
     const solved = figure.solved.map((point) => ({ x: point.x, y: point.y }));
@@ -606,10 +645,178 @@ function scalePoint(point: Point, arena: Arena): Point {
   };
 }
 
+function inDisk(point: Point, radius = 0.9): Point {
+  const dist = Math.hypot(point.x, point.y);
+  if (dist <= radius || dist === 0) return { x: point.x, y: point.y };
+  const scale = radius / dist;
+  return { x: point.x * scale, y: point.y * scale };
+}
+
+function gapsOk(points: readonly Point[], id: number, point: Point): boolean {
+  for (let index = 0; index < points.length; index++) {
+    if (index === id) continue;
+    const other = points[index];
+    if (!other) continue;
+    if (Math.hypot(other.x - point.x, other.y - point.y) < 0.09) return false;
+  }
+  return true;
+}
+
+function rememberMove(
+  list: Point[],
+  point: Point,
+  points: readonly Point[],
+  id: number,
+): void {
+  const clamped = inDisk(point);
+  if (!gapsOk(points, id, clamped)) return;
+  for (const item of list) {
+    if (Math.hypot(item.x - clamped.x, item.y - clamped.y) < 0.035) return;
+  }
+  list.push(clamped);
+}
+
+function reflectAcross(point: Point, a: Point, b: Point): Point {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+  const px = a.x + t * dx;
+  const py = a.y + t * dy;
+  const rx = px * 2 - point.x;
+  const ry = py * 2 - point.y;
+  const vx = rx - point.x;
+  const vy = ry - point.y;
+  const len = Math.hypot(vx, vy) || 1;
+  return { x: rx + (vx / len) * 0.05, y: ry + (vy / len) * 0.05 };
+}
+
+/** Miejsca, w które jeden ruch może zdjąć przecięcie: gniazdo, skrót do środka, zejście ze struny. */
+function moveOptions(
+  points: readonly Point[],
+  solved: readonly Point[],
+  edges: readonly GraphEdge[],
+  id: number,
+): Point[] {
+  const origin = points[id];
+  if (!origin) return [];
+  const options: Point[] = [];
+  const home = solved[id];
+  if (home) rememberMove(options, home, points, id);
+  rememberMove(options, { x: origin.x * 0.45, y: origin.y * 0.45 }, points, id);
+  for (let ring = 1; ring <= 4; ring++) {
+    const radius = 0.18 * ring;
+    for (let step = 0; step < 6; step++) {
+      const angle = (step / 6) * Math.PI * 2 + id * 0.37;
+      rememberMove(
+        options,
+        { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius },
+        points,
+        id,
+      );
+    }
+  }
+  const hits = findIntersections(nodesFrom(points), edges);
+  let used = 0;
+  for (const hit of hits) {
+    if (used >= 3) break;
+    const first = edges[hit.edgeA];
+    const second = edges[hit.edgeB];
+    if (!first || !second) continue;
+    const onFirst = first.a === id || first.b === id;
+    const onSecond = second.a === id || second.b === id;
+    if (!onFirst && !onSecond) continue;
+    const other = onFirst ? second : first;
+    const a = points[other.a];
+    const b = points[other.b];
+    if (!a || !b) continue;
+    const ox = b.x - a.x;
+    const oy = b.y - a.y;
+    const len = Math.hypot(ox, oy) || 1;
+    const px = -oy / len;
+    const py = ox / len;
+    rememberMove(options, { x: origin.x + px * 0.2, y: origin.y + py * 0.2 }, points, id);
+    rememberMove(options, { x: origin.x - px * 0.2, y: origin.y - py * 0.2 }, points, id);
+    rememberMove(options, reflectAcross(origin, a, b), points, id);
+    used += 1;
+  }
+  return options;
+}
+
+function crossingAt(points: Point[], edges: readonly GraphEdge[], id: number, dest: Point): number {
+  const current = points[id];
+  if (!current) return Number.POSITIVE_INFINITY;
+  points[id] = dest;
+  const next = crossingCount(points, edges);
+  points[id] = current;
+  return next;
+}
+
 /**
- * Najmniejsza liczba przeciągnięć, po których układ da się rozplątać:
- * każdy ruch stawia jeden kryształ na jego rozwiązanym miejscu.
- * Mniej ruchów zostawia choć jedno przecięcie.
+ * Najpierw ruch, który zdejmuje choć jedno przecięcie.
+ * Gdy lokalnie nie ma takiego — odstaw kryształ na jego miejsce w rozwiązaniu.
+ */
+function greedyClear(
+  base: readonly Point[],
+  solved: readonly Point[],
+  edges: readonly GraphEdge[],
+): number {
+  const points = base.map((point) => ({ x: point.x, y: point.y }));
+  const parked = new Set<number>();
+  let moves = 0;
+
+  while (crossingCount(points, edges) > 0 && moves < points.length) {
+    const now = crossingCount(points, edges);
+    let bestId = -1;
+    let bestDest: Point | null = null;
+    let bestCount = now;
+    for (let id = 0; id < points.length; id++) {
+      for (const dest of moveOptions(points, solved, edges, id)) {
+        const next = crossingAt(points, edges, id, dest);
+        if (next < bestCount) {
+          bestCount = next;
+          bestId = id;
+          bestDest = dest;
+        }
+      }
+    }
+    if (bestDest && bestId >= 0) {
+      points[bestId] = bestDest;
+      moves += 1;
+      continue;
+    }
+
+    let fallback = -1;
+    let fallbackDist = -1;
+    for (let id = 0; id < points.length; id++) {
+      if (parked.has(id)) continue;
+      const home = solved[id];
+      const current = points[id];
+      if (!home || !current) continue;
+      const dist = Math.hypot(home.x - current.x, home.y - current.y);
+      if (dist < 0.02) {
+        parked.add(id);
+        continue;
+      }
+      if (dist > fallbackDist) {
+        fallbackDist = dist;
+        fallback = id;
+      }
+    }
+    if (fallback < 0) break;
+    const home = solved[fallback];
+    if (!home) break;
+    points[fallback] = { x: home.x, y: home.y };
+    parked.add(fallback);
+    moves += 1;
+  }
+
+  return crossingCount(points, edges) === 0 ? moves : base.length;
+}
+
+/**
+ * Najmniejsza liczba przeciągnięć, po których da się zejść do zera przecięć.
+ * Każdy policzony ruch jest sprawdzony na geometrii tego układu.
  */
 export function movesToUntangle(
   solved: readonly Point[],
@@ -619,104 +826,53 @@ export function movesToUntangle(
   const count = tangled.length;
   if (count === 0 || crossingCount(tangled, edges) === 0) return 0;
 
-  const involved: number[] = [];
-  const groups: number[][] = [];
-  const hits = findIntersections(nodesFrom(tangled), edges);
-  const seen = new Set<number>();
-  for (const hit of hits) {
-    const first = edges[hit.edgeA];
-    const second = edges[hit.edgeB];
-    if (!first || !second) continue;
-    const group = [first.a, first.b, second.a, second.b];
-    groups.push(group);
-    for (const id of group) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      involved.push(id);
-    }
-  }
-  if (involved.length === 0) return 0;
+  const points = tangled.map((point) => ({ x: point.x, y: point.y }));
+  let best = greedyClear(points, solved, edges);
+  if (best >= count) return best;
+  let states = 0;
 
-  let lower = involved.length;
-  const masks = 1 << involved.length;
-  for (let mask = 1; mask < masks; mask++) {
-    let bits = 0;
-    for (let index = 0; index < involved.length; index++) if (mask & (1 << index)) bits += 1;
-    if (bits >= lower) continue;
-    const picked = new Set<number>();
-    for (let index = 0; index < involved.length; index++) {
-      if (mask & (1 << index)) picked.add(involved[index]!);
-    }
-    if (groups.every((group) => group.some((id) => picked.has(id)))) lower = bits;
-  }
-
-  const placed: Point[] = tangled.map((point) => ({ x: point.x, y: point.y }));
-  const parked = new Set<number>();
-  let upper = 0;
-
-  while (crossingCount(placed, edges) > 0 && upper < involved.length) {
-    let bestId = -1;
-    let bestCount = Number.POSITIVE_INFINITY;
-    for (const id of involved) {
-      if (parked.has(id)) continue;
-      const home = solved[id];
-      const current = placed[id];
-      if (!home || !current) continue;
-      placed[id] = home;
-      const next = crossingCount(placed, edges);
-      placed[id] = current;
-      if (next < bestCount) {
-        bestCount = next;
-        bestId = id;
-      }
-    }
-    if (bestId < 0) break;
-    const home = solved[bestId];
-    if (!home) break;
-    placed[bestId] = home;
-    parked.add(bestId);
-    upper += 1;
-  }
-
-  if (upper === lower) return upper;
-
-  const fresh = tangled.map((point) => ({ x: point.x, y: point.y }));
-  for (let index = 0; index < fresh.length; index++) {
-    const point = fresh[index];
-    if (point) placed[index] = { x: point.x, y: point.y };
-  }
-
-  let best = upper;
-  const deadline = Date.now() + (involved.length > 11 ? 48 : 180);
-  const moved = new Set<number>();
-
-  const improve = (moves: number): void => {
-    if (moves >= best || Date.now() > deadline) return;
-    const remaining = findIntersections(nodesFrom(placed), edges);
-    if (remaining.length === 0) {
+  const search = (moves: number): void => {
+    if (moves >= best || states > 2500) return;
+    const now = crossingCount(points, edges);
+    if (now === 0) {
       best = moves;
       return;
     }
-    const hit = remaining[0];
+    states += 1;
+    const hit = findIntersections(nodesFrom(points), edges)[0];
     const first = hit ? edges[hit.edgeA] : undefined;
     const second = hit ? edges[hit.edgeB] : undefined;
     if (!first || !second) return;
-    const options = [first.a, first.b, second.a, second.b].filter((id) => !moved.has(id));
-    for (const id of options) {
-      const home = solved[id];
-      const current = placed[id];
-      if (!home || !current) continue;
-      placed[id] = home;
-      moved.add(id);
-      improve(moves + 1);
-      placed[id] = current;
-      moved.delete(id);
-      if (Date.now() > deadline) return;
+    const ids = [first.a, first.b, second.a, second.b];
+    for (const id of ids) {
+      const current = points[id];
+      if (!current) continue;
+      for (const dest of moveOptions(points, solved, edges, id).slice(0, 5)) {
+        if (crossingAt(points, edges, id, dest) >= now) continue;
+        points[id] = dest;
+        search(moves + 1);
+        points[id] = current;
+        if (states > 2500) return;
+      }
     }
   };
 
-  improve(0);
-  return best;
+  search(0);
+  return Math.max(1, best);
+}
+
+
+/** Ile kryształów stoi poza własnym gniazdem — tyle przeciągnięć składa figurę. */
+function seatsToMatch(solved: readonly Point[], tangled: readonly Point[], radius: number): number {
+  const limit = Math.max(26, radius * MATCH_RADIUS_FACTOR);
+  let off = 0;
+  for (let index = 0; index < tangled.length; index++) {
+    const home = solved[index];
+    const current = tangled[index];
+    if (!home || !current) continue;
+    if (Math.hypot(home.x - current.x, home.y - current.y) > limit) off += 1;
+  }
+  return off;
 }
 
 function fallbackPlan(): LevelPlan {
@@ -743,21 +899,59 @@ function fallbackPlan(): LevelPlan {
 }
 
 function graphFromPlan(level: number, plan: LevelPlan, arena: Arena): Graph {
-  const nodes = nodesFrom(plan.tangled.map((point) => scalePoint(point, arena)));
-  const outline = plan.isConstellation
-    ? plan.solved.map((point) => scalePoint(point, arena))
-    : undefined;
+  const solvedPx = plan.solved.map((point) => scalePoint(point, arena));
+  const tangledPx = plan.tangled.map((point) => scalePoint(point, arena));
+  const nodes = nodesFrom(tangledPx);
+  const outline = plan.isConstellation ? solvedPx : undefined;
+  const seated = seatsToMatch(solvedPx, tangledPx, arena.radius);
+  const minimumMoves = plan.isConstellation
+    ? Math.max(seated, plan.crossings > 0 ? 1 : 0)
+    : (plan.minimumMoves ?? movesToUntangle(plan.solved, plan.tangled, plan.edges));
   return {
     nodes,
     edges: plan.edges,
     arena,
     level,
-    minimumMoves: movesToUntangle(plan.solved, plan.tangled, plan.edges),
+    minimumMoves,
     outline,
     constellationName: plan.constellationName,
     constellationId: plan.constellationId,
     isConstellation: plan.isConstellation === true,
   };
+}
+
+function pickPlan(
+  level: number,
+  seed: number,
+  variant: PuzzleVariant,
+  attempts: number,
+): LevelPlan | null {
+  const target = targetCrossings(level, variant);
+  const slack = Math.max(1, Math.round(target * 0.3));
+  let best: LevelPlan | null = null;
+  let bestRank = Infinity;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const plan = planLevel(level, seed + attempt * 7919, variant);
+    if (!plan) continue;
+    const rank = crossRank(plan.crossings, target);
+    const inBand = plan.crossings >= target && plan.crossings <= target + slack;
+    if (variant === "generic" && inBand) {
+      plan.minimumMoves = movesToUntangle(plan.solved, plan.tangled, plan.edges);
+    }
+    const movePenalty =
+      plan.minimumMoves !== undefined && plan.minimumMoves > plan.crossings
+        ? 40 + plan.minimumMoves
+        : 0;
+    const score = rank + movePenalty;
+    if (score < bestRank) {
+      best = plan;
+      bestRank = score;
+    }
+    if (inBand && movePenalty === 0) break;
+  }
+
+  return best;
 }
 
 export function createLevel(
@@ -767,25 +961,29 @@ export function createLevel(
   chrome?: ArenaChrome,
 ): Graph {
   const arena = computeArena(width, height, chrome);
-  const figure = constellationForLevel(level);
-  const spec = specsForLevel(level);
-  let best: LevelPlan | null = null;
+  const seed = Math.imul(Math.max(1, level), 10007) + 42;
+  const plan = pickPlan(level, seed, "campaign", 48) ?? fallbackPlan();
+  return graphFromPlan(level, plan, arena);
+}
 
-  for (let attempt = 0; attempt < 48; attempt++) {
-    const seed = Math.imul(Math.max(1, level), 10007) + attempt * 7919 + 42;
-    const plan = planLevel(level, seed);
-    if (!plan) continue;
-    if (!best || plan.crossings > best.crossings) best = plan;
-    const need = figure ? Math.max(2, Math.min(4, Math.floor(plan.solved.length / 2))) : spec.minCrossings;
-    if (plan.crossings >= need) break;
-  }
-
-  if (!best && figure) {
-    // Ostatnia deska: figura + okrągłe splątanie.
-    best = planLevel(level, Math.imul(level, 99991) + 7);
-  }
-
-  return graphFromPlan(level, best ?? fallbackPlan(), arena);
+/** Układ trybu: generyczny graf, bez zarysu i bez figury z kampanii. */
+export function createGenericLevel(
+  difficulty: number,
+  width: number,
+  height: number,
+  chrome?: ArenaChrome,
+  salt = 0,
+): Graph {
+  const level = Math.max(1, Math.floor(difficulty));
+  const arena = computeArena(width, height, chrome);
+  const seed = Math.imul(level, 10007) + Math.imul(salt, 9176) + 42;
+  const plan = pickPlan(level, seed, "generic", 64) ?? fallbackPlan();
+  const graph = graphFromPlan(level, plan, arena);
+  graph.outline = undefined;
+  graph.isConstellation = false;
+  graph.constellationName = undefined;
+  graph.constellationId = undefined;
+  return graph;
 }
 
 /** Ten sam układ na obu urządzeniach w pojedynku. */
@@ -797,18 +995,8 @@ export function createLevelWithSeed(
   chrome?: ArenaChrome,
 ): Graph {
   const arena = computeArena(width, height, chrome);
-  const spec = specsForLevel(level);
-  let best: LevelPlan | null = null;
-
-  for (let attempt = 0; attempt < 32; attempt++) {
-    const trySeed = seed + attempt * 7919;
-    const plan = planLevel(level, trySeed);
-    if (!plan) continue;
-    if (!best || plan.crossings > best.crossings) best = plan;
-    if (plan.crossings >= spec.minCrossings) break;
-  }
-
-  return graphFromPlan(level, best ?? fallbackPlan(), arena);
+  const plan = pickPlan(level, seed >>> 0, "campaign", 32) ?? fallbackPlan();
+  return graphFromPlan(level, plan, arena);
 }
 
 export function fitGraph(graph: Graph, width: number, height: number, chrome?: ArenaChrome): void {
@@ -889,6 +1077,7 @@ function separateFromOthers(
   id: number,
   x: number,
   y: number,
+  gap: number,
 ): Point {
   let px = x;
   let py = y;
@@ -898,12 +1087,12 @@ function separateFromOthers(
     const dx = px - other.x;
     const dy = py - other.y;
     const distance = Math.hypot(dx, dy);
-    if (distance >= MIN_DRAG_GAP) continue;
+    if (distance >= gap) continue;
     if (distance <= 0.001) {
-      px += MIN_DRAG_GAP;
+      px += gap;
       continue;
     }
-    const push = (MIN_DRAG_GAP - distance) / distance;
+    const push = (gap - distance) / distance;
     px += dx * push;
     py += dy * push;
   }
@@ -927,11 +1116,12 @@ export function placeDragTarget(
   x: number,
   y: number,
   arena: Arena,
+  minGap = MIN_DRAG_GAP,
 ): Point {
   let point = clampToArena(x, y, arena);
-  point = separateFromOthers(nodes, id, point.x, point.y);
+  point = separateFromOthers(nodes, id, point.x, point.y, minGap);
   point = clampToArena(point.x, point.y, arena);
-  point = separateFromOthers(nodes, id, point.x, point.y);
+  point = separateFromOthers(nodes, id, point.x, point.y, minGap);
   return clampToArena(point.x, point.y, arena);
 }
 

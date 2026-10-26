@@ -5,6 +5,7 @@ import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import { HarpSynth } from "@/lib/audio/synth";
 import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
 import {
+  isConstellationLevel,
   isConstellationMatched,
   magnetTowardOutline,
   settleNodesTowardOutline,
@@ -12,6 +13,11 @@ import {
 } from "@/lib/engine/constellations";
 import {
   CAMPAIGN_LEVELS,
+  ECHO_DIFFICULTY,
+  MASTER_MAX_DIFFICULTY,
+  RUSH_MAX_DIFFICULTY,
+  clampToArena,
+  createGenericLevel,
   createLevel,
   createLevelWithSeed,
   fitGraph,
@@ -21,6 +27,7 @@ import {
   stepNodes,
   type ArenaChrome,
   type Graph,
+  type Point,
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
@@ -197,6 +204,8 @@ export function GameBoard({
     let rushCleared = 0;
     let rushEnded = false;
     let lastHudRush = -1;
+    let layoutSalt = 0;
+    let echoRound = 1;
 
     const publishCrossings = (count: number) => {
       if (count === lastCross) return;
@@ -291,9 +300,12 @@ export function GameBoard({
     const mountLevel = (nextLevel: number, intro: boolean) => {
       levelNum = nextLevel;
       const chrome = readChrome();
+      const boardMode = callbacks.current.mode;
+      const generic = boardMode === "rush" || boardMode === "master" || boardMode === "echo";
       const lockedSeed = seedRef.current;
-      const next =
-        lockedSeed !== undefined
+      const next = generic
+        ? createGenericLevel(nextLevel, width, height, chrome, layoutSalt)
+        : lockedSeed !== undefined
           ? createLevelWithSeed(nextLevel, lockedSeed, width, height, chrome)
           : createLevel(nextLevel, width, height, chrome);
       if (intro) {
@@ -319,9 +331,9 @@ export function GameBoard({
       publishCrossings(hits.length);
       publishMoves(next.minimumMoves);
       setMoveCount(0);
-      setLevel(nextLevel);
+      setLevel(boardMode === "echo" ? echoRound : nextLevel);
       setRevealName(null);
-      callbacks.current.onAdvance(nextLevel);
+      if (!generic) callbacks.current.onAdvance(nextLevel);
       setCleared(false);
       paint(hits, intro ? 0.35 : 0);
     };
@@ -466,14 +478,24 @@ export function GameBoard({
             now - celebrateStart >= 700 &&
             !rushEnded
           ) {
-            mountLevel(Math.max(1, Math.min(12, 3 + Math.floor(rushCleared / 2))), true);
+            const nextDifficulty = Math.min(RUSH_MAX_DIFFICULTY, rushCleared + 1);
+            if (nextDifficulty === levelNum) layoutSalt += 1;
+            mountLevel(nextDifficulty, true);
           } else if (
             celebrating &&
             now - celebrateStart >= victorySpan &&
             !callbacks.current.race &&
             callbacks.current.mode !== "rush"
           ) {
-            mountLevel(levelNum + 1, true);
+            if (callbacks.current.mode === "echo") {
+              layoutSalt += 1;
+              echoRound += 1;
+              mountLevel(ECHO_DIFFICULTY, true);
+            } else if (callbacks.current.mode === "master") {
+              mountLevel(Math.min(MASTER_MAX_DIFFICULTY, levelNum + 1), true);
+            } else {
+              mountLevel(levelNum + 1, true);
+            }
           }
         } else {
           ctx.fillStyle = "#09090b";
@@ -499,6 +521,32 @@ export function GameBoard({
       return { x, y };
     };
 
+    const dragPoint = (id: number, x: number, y: number): Point => {
+      if (!graph) return { x, y };
+      if (!graph.outline) return placeDragTarget(graph.nodes, id, x, y, graph.arena);
+      const clamped = clampToArena(x, y, graph.arena);
+      const snapped = snapToOutlineIfClose(
+        clamped.x,
+        clamped.y,
+        graph.outline,
+        graph.arena.radius,
+        id,
+        graph.nodes,
+      );
+      if (Math.hypot(snapped.x - clamped.x, snapped.y - clamped.y) > 0.4) return snapped;
+      const pulled = magnetTowardOutline(
+        clamped.x,
+        clamped.y,
+        graph.outline,
+        graph.arena.radius,
+        id,
+        graph.nodes,
+      );
+      const engaged = Math.hypot(pulled.x - clamped.x, pulled.y - clamped.y) > 0.4;
+      if (!engaged) return placeDragTarget(graph.nodes, id, x, y, graph.arena);
+      return placeDragTarget(graph.nodes, id, pulled.x, pulled.y, graph.arena, 13);
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       if (event.cancelable) event.preventDefault();
       synth.unlock();
@@ -518,16 +566,7 @@ export function GameBoard({
       moves += 1;
       setMoveCount(moves);
       if (callbacks.current.mode === "echo") echoUntil = performance.now() + ECHO_REVEAL_MS;
-      let target = placeDragTarget(graph.nodes, id, point.x, point.y, graph.arena);
-      if (graph.outline) {
-        target = magnetTowardOutline(
-          target.x,
-          target.y,
-          graph.outline,
-          graph.arena.radius,
-          id,
-        );
-      }
+      const target = dragPoint(id, point.x, point.y);
       node.tx = target.x;
       node.ty = target.y;
       if (callbacks.current.haptics) navigator.vibrate?.(12);
@@ -548,16 +587,7 @@ export function GameBoard({
       const node = graph.nodes[dragging];
       if (!node) return;
       const point = pointFrom(event);
-      let target = placeDragTarget(graph.nodes, node.id, point.x, point.y, graph.arena);
-      if (graph.outline) {
-        target = magnetTowardOutline(
-          target.x,
-          target.y,
-          graph.outline,
-          graph.arena.radius,
-          node.id,
-        );
-      }
+      const target = dragPoint(node.id, point.x, point.y);
       node.tx = target.x;
       node.ty = target.y;
       if (callbacks.current.trail && trailMotes.length < 48) {
@@ -576,6 +606,7 @@ export function GameBoard({
             graph.outline,
             graph.arena.radius,
             node.id,
+            graph.nodes,
           );
           node.tx = target.x;
           node.ty = target.y;
@@ -844,7 +875,9 @@ export function GameBoard({
             !compact &&
             mode !== "echo" && (
             <p className="ui-muted hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed">
-              {revealName || level % 5 === 0 ? t("hint_magnet") : t("hint_untangle")}
+              {revealName || (mode === "classic" && isConstellationLevel(level))
+                ? t("hint_magnet")
+                : t("hint_untangle")}
             </p>
           )}
 
