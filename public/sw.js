@@ -1,4 +1,4 @@
-const CACHE = "tangle-duel-v9";
+const CACHE = "tangle-duel-v10";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -19,21 +19,45 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname === "/sw.js") return;
 
+  // Hashowane assety builda nigdy się nie zmieniają — cache-first, zero ruchu do sieci.
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ||
+          fetch(request).then((response) => {
+            if (response.ok) {
+              const copy = response.clone();
+              caches.open(CACHE).then((cache) => cache.put(request, copy));
+            }
+            return response;
+          }),
+      ),
+    );
+    return;
+  }
+
+  // Reszta: stale-while-revalidate — natychmiast z cache, odświeżenie w tle.
   event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && url.pathname !== "/sw.js") {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
-      }),
+    caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(request);
+      const network = fetch(request)
+        .then((response) => {
+          if (response.ok) cache.put(request, response.clone());
+          return response;
+        })
+        .catch(() => null);
+
+      if (cached) {
+        event.waitUntil(network);
+        return cached;
+      }
+      const fresh = await network;
+      if (fresh) return fresh;
+      return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+    }),
   );
 });
 

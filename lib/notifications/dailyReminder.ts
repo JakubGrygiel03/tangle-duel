@@ -73,14 +73,16 @@ export async function showDailyReminderNotification(title: string, body: string)
   if (!notificationSupport() || Notification.permission !== "granted") return;
   try {
     const reg = await navigator.serviceWorker.ready;
-    await reg.showNotification(title, {
+    // `renotify` jest w specyfikacji, ale nie w typach DOM z lib.dom.d.ts.
+    const options: NotificationOptions & { renotify?: boolean } = {
       body,
       tag: REMINDER_TAG,
       renotify: true,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       data: { url: "/" },
-    });
+    };
+    await reg.showNotification(title, options);
   } catch {
     try {
       new Notification(title, { body, tag: REMINDER_TAG, icon: "/icons/icon-192.png" });
