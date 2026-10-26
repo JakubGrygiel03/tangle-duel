@@ -188,7 +188,11 @@ body {
 
 .theme-chrome .ui-panel-star {
   border-color: var(--ui-warm-mid, rgba(249, 115, 22, 0.45));
-  background: var(--ui-warm-soft, rgba(249, 115, 22, 0.08));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--ui-warm, #fdba74) 16%, transparent),
+    color-mix(in srgb, var(--ui-ice, #e0f2fe) 6%, transparent)
+  );
   color: var(--ui-ice, #e0f2fe);
 }
 

@@ -55,6 +55,8 @@ export type ClearInfo = {
   perfect: boolean;
   constellationName?: string;
   constellationId?: string;
+  /** Numer układu w Echo (do zapisu postępu). */
+  round?: number;
 };
 
 type TrailMote = { x: number; y: number; life: number };
@@ -70,6 +72,8 @@ type GameBoardProps = {
   mode?: BoardMode;
   /** Wspólny seed pojedynku — ten sam układ na obu urządzeniach. */
   seed?: number;
+  /** Startowy numer układu Echo / sól generowania. */
+  startRound?: number;
   /** Po zaliczeniu nie przechodzi dalej (pojedynek / daily / rush koniec). */
   race?: boolean;
   /** Wypełnia rodzica zamiast całego ekranu (split-screen). */
@@ -103,6 +107,7 @@ export function GameBoard({
   trail = false,
   mode = "classic",
   seed,
+  startRound = 1,
   race = false,
   embed = false,
   inverted = false,
@@ -204,8 +209,8 @@ export function GameBoard({
     let rushCleared = 0;
     let rushEnded = false;
     let lastHudRush = -1;
-    let layoutSalt = 0;
-    let echoRound = 1;
+    let layoutSalt = Math.max(0, Math.floor(startRound) - 1);
+    let echoRound = Math.max(1, Math.floor(startRound));
 
     const publishCrossings = (count: number) => {
       if (count === lastCross) return;
@@ -445,6 +450,7 @@ export function GameBoard({
                   perfect,
                   constellationName: name,
                   constellationId: graph.constellationId,
+                  round: callbacks.current.mode === "echo" ? echoRound : undefined,
                 });
                 try {
                   if (name) synth.constellationChord();

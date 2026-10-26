@@ -14,7 +14,11 @@ import {
   type ConstellationId,
   constellationForLevel,
 } from "@/lib/engine/constellations";
-import { CAMPAIGN_LEVELS } from "@/lib/engine/graph";
+import {
+  CAMPAIGN_LEVELS,
+  MASTER_MAX_DIFFICULTY,
+  MASTER_START_DIFFICULTY,
+} from "@/lib/engine/graph";
 import { computeUnlockedThemes, getTheme, THEMES, type ThemeId } from "@/lib/engine/themes";
 import { isLocaleId, type LocalePreference } from "@/lib/i18n";
 
@@ -26,7 +30,7 @@ export type GameSave = {
   tutorialSeen: boolean;
   /** Pierwsze wyjaśnienie mechaniki konstelacji (poziom 5). */
   constellationIntroSeen: boolean;
-  /** Bieżący poziom (kampania 1–60 albo nieskończone 61+). */
+  /** Bieżący poziom (kampania 1–180 albo nieskończone 181+). */
   level: number;
   /** Zaliczone poziomy kampanii. */
   clearedCampaign: number[];
@@ -45,6 +49,22 @@ export type GameSave = {
   dailyStreak: number;
   /** Odkryte konstelacje (album). */
   constellations: ConstellationId[];
+  /** Tryb Mistrz: bieżąca trudność do wznowienia. */
+  masterLevel: number;
+  /** Tryb Mistrz: najwyższa zaliczona trudność. */
+  masterBest: number;
+  /** Tryb Echo: numer układu do wznowienia. */
+  echoRound: number;
+  /** Tryb Echo: najlepsza seria układów. */
+  echoBest: number;
+  /** Błyskawica: najlepszy wynik (układów w biegu). */
+  rushBest: number;
+  /** Błyskawica: łączna liczba clearów (misje). */
+  rushClearsTotal: number;
+  /** Odebrane misje (id z QUESTS). */
+  questClaims: string[];
+  /** Ile razy otwarto / wystartowano pojedynek (misje). */
+  duelStarted: number;
   /** Aktywny pakiet brzmienia. */
   soundPack: SoundPackId;
   /** Kupione pakiety (oprócz harfy). */
@@ -57,6 +77,14 @@ export type GameSave = {
   purchasedShapes: CrystalShapeId[];
   /** Jednorazowy zakup: bez reklam + pełny katalog sklepu. */
   premiumUnlocked: boolean;
+  /** Przypomnienie o Daily (powiadomienie). */
+  dailyReminder: boolean;
+  /** Czy już pytano o zgodę na powiadomienia. */
+  dailyReminderAsked: boolean;
+  /** Konto Google (sub) — opcjonalne. */
+  accountId: string;
+  accountName: string;
+  accountEmail: string;
 };
 
 const KEY = "tangle-duel-save";
@@ -65,6 +93,24 @@ function sanitizeLocale(value: unknown): LocalePreference {
   if (value === "auto") return "auto";
   if (typeof value === "string" && isLocaleId(value)) return value;
   return "auto";
+}
+
+function sanitizeNonNegInt(value: unknown, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(max, Math.floor(value)));
+}
+
+function sanitizeMasterLevel(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return MASTER_START_DIFFICULTY;
+  return Math.max(
+    MASTER_START_DIFFICULTY,
+    Math.min(MASTER_MAX_DIFFICULTY, Math.floor(value)),
+  );
+}
+
+function sanitizeEchoRound(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.max(1, Math.min(9999, Math.floor(value)));
 }
 
 export const defaultSave = (): GameSave => ({
@@ -83,6 +129,14 @@ export const defaultSave = (): GameSave => ({
   dailyClaimedOn: "",
   dailyStreak: 0,
   constellations: [],
+  masterLevel: MASTER_START_DIFFICULTY,
+  masterBest: 0,
+  echoRound: 1,
+  echoBest: 0,
+  rushBest: 0,
+  rushClearsTotal: 0,
+  questClaims: [],
+  duelStarted: 0,
   soundPack: "harp",
   purchasedSounds: [],
   trailOwned: false,
@@ -90,6 +144,11 @@ export const defaultSave = (): GameSave => ({
   crystalShape: "diamond",
   purchasedShapes: [],
   premiumUnlocked: false,
+  dailyReminder: false,
+  dailyReminderAsked: false,
+  accountId: "",
+  accountName: "",
+  accountEmail: "",
 });
 
 /** Odblokuj cały katalog sklepu i wyłącz reklamy (zakup premium). */
@@ -165,6 +224,15 @@ export function mergeAlbumFromCleared(
     }
   }
   return CONSTELLATIONS.map((item) => item.id).filter((id) => next.has(id));
+}
+
+function sanitizeQuestClaims(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  const unique = new Set<string>();
+  for (const id of ids) {
+    if (typeof id === "string" && id.length > 0 && id.length <= 48) unique.add(id);
+  }
+  return [...unique];
 }
 
 function sanitizeSounds(ids: unknown): SoundPackId[] {
@@ -274,6 +342,14 @@ export function loadSave(): GameSave {
       dailyClaimedOn,
       dailyStreak,
       constellations,
+      masterLevel: sanitizeMasterLevel(parsed.masterLevel),
+      masterBest: sanitizeNonNegInt(parsed.masterBest, MASTER_MAX_DIFFICULTY),
+      echoRound: sanitizeEchoRound(parsed.echoRound),
+      echoBest: sanitizeNonNegInt(parsed.echoBest, 9999),
+      rushBest: sanitizeNonNegInt(parsed.rushBest, 9999),
+      rushClearsTotal: sanitizeNonNegInt(parsed.rushClearsTotal, 999_999),
+      questClaims: sanitizeQuestClaims(parsed.questClaims),
+      duelStarted: sanitizeNonNegInt(parsed.duelStarted, 9999),
       soundPack: ownedSound,
       purchasedSounds,
       trailOwned,
@@ -281,6 +357,11 @@ export function loadSave(): GameSave {
       crystalShape: ownedShape,
       purchasedShapes,
       premiumUnlocked: parsed.premiumUnlocked === true,
+      dailyReminder: parsed.dailyReminder === true,
+      dailyReminderAsked: parsed.dailyReminderAsked === true,
+      accountId: typeof parsed.accountId === "string" ? parsed.accountId.slice(0, 128) : "",
+      accountName: typeof parsed.accountName === "string" ? parsed.accountName.slice(0, 80) : "",
+      accountEmail: typeof parsed.accountEmail === "string" ? parsed.accountEmail.slice(0, 120) : "",
     };
     return base.premiumUnlocked ? withPremiumUnlock(base) : base;
   } catch {
@@ -323,7 +404,10 @@ export function updateSave(recipe: (current: GameSave) => GameSave): void {
   emit();
 }
 
-/** Pełny reset postępu — czyści localStorage i wraca do poziomu 1. */
+/**
+ * Reset postępu kampanii / trybów / albumu.
+ * Zakup premium, konto Google i ustawienia przypomnienia zostają.
+ */
 export function resetProgress(
   keep: Pick<GameSave, "muted" | "haptics" | "locale"> & { tutorialSeen?: boolean } = {
     muted: false,
@@ -331,19 +415,25 @@ export function resetProgress(
     locale: "auto",
   },
 ): GameSave {
-  const next: GameSave = {
+  const previous = memory;
+  let next: GameSave = {
     ...defaultSave(),
     muted: keep.muted,
     haptics: keep.haptics,
     locale: keep.locale ?? "auto",
     tutorialSeen: keep.tutorialSeen ?? true,
+    // Entitlementy i konto — nie kasujemy przy resecie postępu.
+    premiumUnlocked: previous.premiumUnlocked,
+    dailyReminder: previous.dailyReminder,
+    dailyReminderAsked: previous.dailyReminderAsked,
+    accountId: previous.accountId,
+    accountName: previous.accountName,
+    accountEmail: previous.accountEmail,
   };
-  memory = next;
-  try {
-    window.localStorage.removeItem(KEY);
-  } catch {
-    // Ignoruj — i tak nadpisujemy poniżej.
+  if (next.premiumUnlocked) {
+    next = withPremiumUnlock(next);
   }
+  memory = next;
   writeSave(next);
   emit();
   return next;

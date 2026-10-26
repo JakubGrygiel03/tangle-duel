@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -9,8 +10,21 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import {
+  googleAuthConfigured,
+  signInWithGoogle,
+  signOutGoogle,
+} from "@/lib/account/googleAuth";
+import {
+  armDailyReminder,
+  clearDailyReminderTimer,
+  currentReminderPermission,
+  previewDailyReminder,
+  requestReminderPermission,
+} from "@/lib/notifications/dailyReminder";
 import { DuelLobby } from "@/components/game/DuelLobby";
 import { GameBoard, type BoardMode, type ClearInfo } from "@/components/game/GameBoard";
+import { LevelMap } from "@/components/game/LevelMap";
 import { LivingSky } from "@/components/game/LivingSky";
 import { StudioCard } from "@/components/game/StudioCard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
@@ -45,6 +59,9 @@ import {
   PERFECT_MOVE_BONUS,
   SOUND_PACKS,
   TRAIL_PRICE,
+  crystalsForEchoClear,
+  crystalsForMasterClear,
+  crystalsForRushRun,
   themeCrystalPrice,
   type CrystalPackId,
   type CrystalShapeId,
@@ -53,10 +70,20 @@ import {
 import {
   CAMPAIGN_LEVELS,
   ECHO_DIFFICULTY,
+  MASTER_MAX_DIFFICULTY,
   MASTER_START_DIFFICULTY,
   isEndlessUnlocked,
   type ArenaChrome,
 } from "@/lib/engine/graph";
+import {
+  activeQuest,
+  isQuestPathComplete,
+  upcomingQuests,
+  type QuestDeepLink,
+  type QuestProgressInput,
+  type QuestView,
+} from "@/lib/engine/quests";
+import { realmForLevel } from "@/lib/engine/realms";
 import {
   getTheme,
   isThemeUnlocked,
@@ -79,6 +106,7 @@ import {
 
 type Screen =
   | "tutorial"
+  | "howto"
   | "menu"
   | "levels"
   | "shop"
@@ -107,12 +135,35 @@ export function GameApp() {
   const [boardMode, setBoardMode] = useState<BoardMode>("classic");
   const [dailySeed, setDailySeed] = useState<number | undefined>(undefined);
   const [unlockNote, setUnlockNote] = useState<string | null>(null);
-  const [rushResult, setRushResult] = useState<number | null>(null);
+  const [rushResult, setRushResult] = useState<{ score: number; crystals: number } | null>(
+    null,
+  );
   const shellRef = useRef<HTMLDivElement>(null);
   const [menuBand, setMenuBand] = useState<ArenaChrome | undefined>(undefined);
   const visible: Screen = screen === "auto" ? (save.tutorialSeen ? "menu" : "tutorial") : screen;
   const dailyDone = save.dailyClaimedOn === daily.day;
   const dailyStreak = visibleDailyStreak(save.dailyClaimedOn, save.dailyStreak, daily.day);
+
+  const openScreen = useCallback((next: Screen) => {
+    setConfirmReset(false);
+    setScreen((current) => {
+      const from = current === "auto" ? (readSave().tutorialSeen ? "menu" : "tutorial") : current;
+      if (typeof window !== "undefined" && next !== from) {
+        window.history.pushState({ tangle: next }, "");
+      }
+      return next;
+    });
+  }, []);
+
+  const goBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.state && "tangle" in window.history.state) {
+      window.history.back();
+      return;
+    }
+    setRushResult(null);
+    setConfirmReset(false);
+    setScreen("menu");
+  }, []);
 
   // Uzupełnij album z postępu (stare save'y / clear bez wpisu).
   useEffect(() => {
@@ -133,6 +184,41 @@ export function GameApp() {
     });
   }, []);
 
+  // Gest wstecz / przycisk Back — nawigacja w aplikacji zamiast zamykania PWA.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.history.replaceState({ tangle: "menu" }, "");
+    const onPop = (event: PopStateEvent) => {
+      const target = (event.state?.tangle as Screen | undefined) ?? "menu";
+      setRushResult(null);
+      setConfirmReset(false);
+      setScreen(target);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Przypomnienie Daily + jednorazowe pytanie o zgodę.
+  useEffect(() => {
+    if (studio !== "done") return;
+    armDailyReminder({
+      enabled: save.dailyReminder,
+      title: t("daily_reminder_title"),
+      body: t("daily_reminder_body"),
+      alreadyClaimedToday: dailyDone,
+    });
+    return () => clearDailyReminderTimer();
+  }, [studio, save.dailyReminder, dailyDone, t]);
+
+  useEffect(() => {
+    if (studio !== "done" || save.dailyReminderAsked || visible !== "menu") return;
+    const timer = window.setTimeout(() => {
+      setUnlockNote(t("daily_reminder_prompt"));
+      updateSave((current) => ({ ...current, dailyReminderAsked: true }));
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [studio, save.dailyReminderAsked, visible, t]);
+
   const play = (level: number, mode: PlayMode = "campaign") => {
     setPlayMode(mode);
     setBoardMode(
@@ -148,11 +234,23 @@ export function GameApp() {
             current.clearedCampaign.length > 0 ? Math.max(...current.clearedCampaign) : 0;
           next = Math.min(CAMPAIGN_LEVELS, Math.max(1, peak + 1));
         }
-        return { ...current, level: next };
+        const realm = realmForLevel(next);
+        const realmVisual = getTheme(realm.themeId);
+        const themeOpen = isThemeUnlocked(
+          realmVisual,
+          current.clearedCampaign,
+          current.endlessBest,
+          current.purchasedThemes,
+        );
+        return {
+          ...current,
+          level: next,
+          ...(themeOpen ? { themeId: realm.themeId } : {}),
+        };
       });
     }
     setRun((value) => value + 1);
-    setScreen("play");
+    openScreen("play");
   };
 
   const playDaily = () => {
@@ -163,10 +261,98 @@ export function GameApp() {
     setDailySeed(challenge.seed);
     updateSave((current) => ({ ...current, level: challenge.level }));
     setRun((value) => value + 1);
-    setScreen("play");
+    openScreen("play");
   };
 
-  const openTutorial = () => setScreen("tutorial");
+  const openTutorial = () => openScreen("howto");
+  const openGesturePractice = () => openScreen("tutorial");
+
+  const openDuel = () => {
+    updateSave((current) =>
+      current.duelStarted > 0 ? current : { ...current, duelStarted: 1 },
+    );
+    openScreen("duel");
+  };
+
+  const claimQuest = (questId: string) => {
+    let note: string | null = null;
+    updateSave((current) => {
+      if (current.questClaims.includes(questId)) return current;
+      const input: QuestProgressInput = {
+        clearedCampaign: current.clearedCampaign,
+        dailyClaimedOn: current.dailyClaimedOn,
+        rushClearsTotal: current.rushClearsTotal,
+        constellations: current.constellations,
+        duelStarted: current.duelStarted,
+        questClaims: current.questClaims,
+      };
+      const view = activeQuest(input);
+      if (!view || view.quest.id !== questId || !view.ready) return current;
+      note = t("shop_ad_ready", { n: view.quest.reward });
+      return {
+        ...current,
+        crystals: current.crystals + view.quest.reward,
+        questClaims: [...current.questClaims, questId],
+      };
+    });
+    if (note) setUnlockNote(note);
+  };
+
+  const toggleDailyReminder = async () => {
+    if (save.dailyReminder) {
+      updateSave((current) => ({ ...current, dailyReminder: false, dailyReminderAsked: true }));
+      clearDailyReminderTimer();
+      setUnlockNote(t("daily_reminder_off"));
+      return;
+    }
+    const permission = await requestReminderPermission();
+    updateSave((current) => ({ ...current, dailyReminderAsked: true }));
+    if (permission === "unsupported") {
+      setUnlockNote(t("daily_reminder_unsupported"));
+      return;
+    }
+    if (permission !== "granted") {
+      setUnlockNote(t("daily_reminder_denied"));
+      return;
+    }
+    updateSave((current) => ({ ...current, dailyReminder: true }));
+    await previewDailyReminder(t("daily_reminder_title"), t("daily_reminder_body"));
+    setUnlockNote(t("daily_reminder_on"));
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!googleAuthConfigured()) {
+      setUnlockNote(t("account_google_missing"));
+      return;
+    }
+    try {
+      const profile = await signInWithGoogle();
+      updateSave((current) => ({
+        ...current,
+        accountId: profile.accountId,
+        accountName: profile.accountName,
+        accountEmail: profile.accountEmail,
+      }));
+      setUnlockNote(
+        t("account_google_signed", {
+          name: profile.accountName || profile.accountEmail || profile.accountId,
+        }),
+      );
+    } catch {
+      setUnlockNote(t("account_google_error"));
+    }
+  };
+
+  const handleGoogleSignOut = () => {
+    signOutGoogle();
+    updateSave((current) => ({
+      ...current,
+      accountId: "",
+      accountName: "",
+      accountEmail: "",
+    }));
+    setUnlockNote(t("account_google_signout"));
+  };
 
   useEffect(() => {
     if (studio !== "show") return;
@@ -220,12 +406,44 @@ export function GameApp() {
 
   const finishTutorial = () => {
     updateSave((current) => ({ ...current, tutorialSeen: true }));
-    setScreen("menu");
+    openScreen("howto");
   };
 
   const onCleared = (info: ClearInfo) => {
     let note: string | null = null;
-    if (playMode === "rush" || playMode === "master" || playMode === "echo") return;
+
+    if (playMode === "rush") return;
+
+    if (playMode === "master") {
+      updateSave((current) => {
+        const gained = crystalsForMasterClear(info.level, info.perfect);
+        note = t("shop_ad_ready", { n: gained });
+        return {
+          ...current,
+          crystals: current.crystals + gained,
+          masterLevel: Math.min(MASTER_MAX_DIFFICULTY, info.level + 1),
+          masterBest: Math.max(current.masterBest, info.level),
+        };
+      });
+      if (note) setUnlockNote(note);
+      return;
+    }
+
+    if (playMode === "echo") {
+      updateSave((current) => {
+        const round = info.round ?? current.echoRound;
+        const gained = crystalsForEchoClear(round, info.perfect);
+        note = t("shop_ad_ready", { n: gained });
+        return {
+          ...current,
+          crystals: current.crystals + gained,
+          echoRound: round + 1,
+          echoBest: Math.max(current.echoBest, round),
+        };
+      });
+      if (note) setUnlockNote(note);
+      return;
+    }
 
     if (playMode === "daily") {
       const challenge = getDailyChallenge();
@@ -291,8 +509,18 @@ export function GameApp() {
           <div className="play-column z-10 flex flex-col items-center justify-center px-6 text-center">
             <p className="ui-kicker text-[11px] uppercase tracking-[0.32em]">{t("mode_rush")}</p>
             <h2 className="mt-3 text-[2.4rem] font-light tracking-[-0.03em]">{t("rush_over")}</h2>
-            <p className="ui-accent mt-4 text-[3.5rem] font-light tabular-nums">{rushResult}</p>
+            <p className="ui-accent mt-4 text-[3.5rem] font-light tabular-nums">
+              {rushResult.score}
+            </p>
             <p className="ui-muted mt-1 text-[14px]">{t("layouts_row")}</p>
+            {rushResult.crystals > 0 && (
+              <p className="ui-warm mt-4 text-[15px]">{t("shop_ad_ready", { n: rushResult.crystals })}</p>
+            )}
+            {save.rushBest > 0 && (
+              <p className="ui-muted mt-2 text-[12px]">
+                {t("mode_rush_best", { n: save.rushBest })}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => play(1, "rush")}
@@ -304,7 +532,7 @@ export function GameApp() {
               type="button"
               onClick={() => {
                 setRushResult(null);
-                setScreen("menu");
+                goBack();
               }}
               className="ui-muted mt-3 h-12 w-full max-w-xs text-[14px]"
             >
@@ -321,7 +549,7 @@ export function GameApp() {
             playMode === "rush"
               ? 1
               : playMode === "master"
-                ? MASTER_START_DIFFICULTY
+                ? save.masterLevel
                 : playMode === "echo"
                   ? ECHO_DIFFICULTY
                   : save.level
@@ -334,6 +562,7 @@ export function GameApp() {
           trail={save.trailOwned && save.trailEnabled}
           mode={boardMode}
           seed={playMode === "daily" ? dailySeed : undefined}
+          startRound={playMode === "echo" ? save.echoRound : 1}
           race={playMode === "daily"}
           t={t}
           constellationIntro={
@@ -346,14 +575,23 @@ export function GameApp() {
           onConstellationIntroSeen={() =>
             updateSave((current) => ({ ...current, constellationIntroSeen: true }))
           }
-          onMenu={() => setScreen("menu")}
+          onMenu={goBack}
           onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
           onCleared={onCleared}
           onAdvance={(level) => {
             if (playMode !== "campaign") return;
             updateSave((current) => ({ ...current, level }));
           }}
-          onRushOver={(score) => setRushResult(score)}
+          onRushOver={(score) => {
+            const crystals = crystalsForRushRun(score);
+            updateSave((current) => ({
+              ...current,
+              crystals: current.crystals + crystals,
+              rushBest: Math.max(current.rushBest, score),
+              rushClearsTotal: current.rushClearsTotal + Math.max(0, score),
+            }));
+            setRushResult({ score, crystals });
+          }}
         />
       );
     }
@@ -368,7 +606,7 @@ export function GameApp() {
         trail={save.trailOwned && save.trailEnabled}
         t={t}
         onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
-        onBack={() => setScreen("menu")}
+        onBack={goBack}
       />
     );
   } else if (visible === "tutorial") {
@@ -378,9 +616,10 @@ export function GameApp() {
         haptics={save.haptics}
         theme={theme}
         firstVisit={!save.tutorialSeen}
+        t={t}
         onSkip={() => {
           updateSave((current) => ({ ...current, tutorialSeen: true }));
-          setScreen("menu");
+          openScreen("howto");
         }}
         onFinish={finishTutorial}
       />
@@ -422,14 +661,24 @@ export function GameApp() {
                 dailyReward={daily.reward}
                 dailyStreak={dailyStreak}
                 albumCount={save.constellations.length}
+                questInput={{
+                  clearedCampaign: save.clearedCampaign,
+                  dailyClaimedOn: save.dailyClaimedOn,
+                  rushClearsTotal: save.rushClearsTotal,
+                  constellations: save.constellations,
+                  duelStarted: save.duelStarted,
+                  questClaims: save.questClaims,
+                }}
                 onPlay={() => play(save.level)}
                 onDaily={playDaily}
-                onDuel={() => setScreen("duel")}
+                onDuel={openDuel}
                 onModes={() => setScreen("modes")}
+                onRush={() => play(1, "rush")}
                 onLevels={() => setScreen("levels")}
                 onShop={() => setScreen("shop")}
                 onAlbum={() => setScreen("album")}
                 onTutorial={openTutorial}
+                onClaimQuest={claimQuest}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
                 onSettings={() => {
                   setConfirmReset(false);
@@ -437,13 +686,45 @@ export function GameApp() {
                 }}
               />
             )}
+            {visible === "howto" && (
+              <HowToScreen
+                t={t}
+                onBack={() => {
+                  if (typeof window !== "undefined") {
+                    window.history.replaceState({ tangle: "menu" }, "");
+                  }
+                  setScreen("menu");
+                }}
+                onPractice={openGesturePractice}
+                onPlay={() => play(save.level)}
+              />
+            )}
             {visible === "modes" && (
               <ModesScreen
                 t={t}
+                masterLevel={save.masterLevel}
+                masterBest={save.masterBest}
+                echoRound={save.echoRound}
+                echoBest={save.echoBest}
+                rushBest={save.rushBest}
                 onBack={() => setScreen("menu")}
                 onRush={() => play(1, "rush")}
-                onMaster={() => play(MASTER_START_DIFFICULTY, "master")}
+                onMaster={() => play(save.masterLevel, "master")}
+                onMasterRestart={() => {
+                  updateSave((current) => ({
+                    ...current,
+                    masterLevel: MASTER_START_DIFFICULTY,
+                  }));
+                  play(MASTER_START_DIFFICULTY, "master");
+                }}
                 onEcho={() => play(ECHO_DIFFICULTY, "echo")}
+                onEchoRestart={() => {
+                  updateSave((current) => ({
+                    ...current,
+                    echoRound: 1,
+                  }));
+                  play(ECHO_DIFFICULTY, "echo");
+                }}
               />
             )}
             {visible === "album" && (
@@ -457,9 +738,8 @@ export function GameApp() {
               <EventScreen theme={theme} onBack={() => setScreen("menu")} onShop={() => setScreen("shop")} />
             )}
             {visible === "levels" && (
-              <LevelSelect
+              <LevelMap
                 t={t}
-                theme={theme}
                 current={save.level}
                 cleared={save.clearedCampaign}
                 endlessBest={save.endlessBest}
@@ -590,7 +870,7 @@ export function GameApp() {
                   updateSave((current) => ({ ...current, haptics: !current.haptics }))
                 }
                 onLocale={(next) => updateSave((current) => ({ ...current, locale: next }))}
-                onDuel={() => setScreen("duel")}
+                onDuel={openDuel}
                 onTutorial={openTutorial}
                 onReset={() => {
                   if (!confirmReset) {
@@ -647,14 +927,17 @@ function MainMenu({
   dailyReward,
   dailyStreak,
   albumCount,
+  questInput,
   onPlay,
   onDaily,
   onDuel,
   onModes,
+  onRush,
   onLevels,
   onShop,
   onAlbum,
   onTutorial,
+  onClaimQuest,
   onToggleMuted,
   onSettings,
 }: {
@@ -667,14 +950,17 @@ function MainMenu({
   dailyReward: number;
   dailyStreak: number;
   albumCount: number;
+  questInput: QuestProgressInput;
   onPlay: () => void;
   onDaily: () => void;
   onDuel: () => void;
   onModes: () => void;
+  onRush: () => void;
   onLevels: () => void;
   onShop: () => void;
   onAlbum: () => void;
   onTutorial: () => void;
+  onClaimQuest: (questId: string) => void;
   onToggleMuted: () => void;
   onSettings: () => void;
 }) {
@@ -682,6 +968,19 @@ function MainMenu({
     level > CAMPAIGN_LEVELS
       ? t("endless_n", { n: level - CAMPAIGN_LEVELS })
       : t("level_n", { n: level });
+  const quest = activeQuest(questInput);
+  const nextQuests = upcomingQuests(questInput, 1);
+  const pathDone = isQuestPathComplete(questInput);
+
+  const followQuest = (link: QuestDeepLink) => {
+    if (link === "play") onPlay();
+    else if (link === "rush") onRush();
+    else if (link === "modes") onModes();
+    else if (link === "daily") onDaily();
+    else if (link === "duel") onDuel();
+    else onLevels();
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="relative pt-1">
@@ -703,17 +1002,17 @@ function MainMenu({
           <GearIcon />
         </button>
         <div data-menu-mark className="px-12 text-center">
-          <h1 className="text-[3.2rem] font-light leading-[0.84] tracking-[-0.045em]">
+          <h1 className="text-[3.05rem] font-light leading-[0.84] tracking-[-0.045em]">
             Tangle
             <br />
             Duel
           </h1>
-          <div className="mx-auto mt-3.5 flex items-center justify-center gap-3 opacity-70">
+          <div className="mx-auto mt-3 flex items-center justify-center gap-3 opacity-70">
             <span className="h-px w-9 bg-current opacity-40" />
             <Diamond style={{ color: theme.warm }} />
             <span className="h-px w-9 bg-current opacity-40" />
           </div>
-          <p className="ui-muted mt-2.5 text-[12px] tabular-nums tracking-wide">
+          <p className="ui-muted mt-2 text-[12px] tabular-nums tracking-wide">
             {t("crystals_count", { n: crystals })}
           </p>
         </div>
@@ -724,66 +1023,85 @@ function MainMenu({
           type="button"
           data-menu-play
           onClick={onPlay}
-          className="play-seal flex h-[4.5rem] w-full items-center gap-3.5 rounded-[1.35rem] px-3.5 text-left active:scale-[0.985]"
+          className="play-seal flex h-[4.35rem] w-full items-center gap-3.5 rounded-[1.35rem] px-3.5 text-left active:scale-[0.985]"
         >
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/10">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-black/10">
             <PlayCrystal accent={theme.warm} ink={theme.ink} />
           </span>
           <span className="min-w-0">
-            <span className="block text-[1.4rem] font-medium leading-none tracking-wide">{t("play")}</span>
+            <span className="block text-[1.35rem] font-medium leading-none tracking-wide">{t("play")}</span>
             <span className="mt-1.5 block text-[13px] font-normal opacity-55">{label}</span>
           </span>
-          <span className="ml-auto pr-2 text-[2rem] font-light tabular-nums leading-none">
+          <span className="ml-auto pr-2 text-[1.85rem] font-light tabular-nums leading-none">
             {level > CAMPAIGN_LEVELS ? "∞" : level}
           </span>
         </button>
 
+        <QuestStrip
+          t={t}
+          theme={theme}
+          quest={quest}
+          next={nextQuests[0] ?? null}
+          pathDone={pathDone}
+          onClaim={onClaimQuest}
+          onFollow={followQuest}
+        />
+
         <button
           type="button"
-          onClick={onDaily}
-          className={`mt-2.5 flex h-[4.35rem] w-full items-center gap-3.5 rounded-[1.25rem] border px-3.5 text-left backdrop-blur-md active:scale-[0.985] ${
-            dailyDone ? "ui-panel" : "ui-panel-active"
-          }`}
-          style={
-            dailyDone
-              ? undefined
-              : {
-                  borderColor: `${theme.warm}73`,
-                  background: `${theme.warm}24`,
-                  boxShadow: `0 0 28px ${theme.warm}2e`,
-                }
-          }
+          onClick={onModes}
+          className="ui-panel mt-2.5 flex h-[4.15rem] w-full items-center gap-3.5 rounded-[1.25rem] border px-3.5 text-left backdrop-blur-md active:scale-[0.985]"
         >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-black/25">
-            <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-black/30">
+            <EventIcon accent={theme.warm} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[1.15rem] font-medium leading-none">{t("daily")}</span>
-            <span className={`mt-1.5 block text-[12px] ${dailyDone ? "ui-muted" : "opacity-80"}`}>
-              {dailyDone ? t("daily_done") : t("daily_layout", { n: dailyReward })}
-            </span>
+            <span className="block text-[1.1rem] font-medium leading-none">{t("modes")}</span>
+            <span className="ui-muted mt-1.5 block text-[12px]">{t("modes_detail")}</span>
           </span>
-          {dailyStreak > 0 && (
-            <span
-              className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5"
-              style={{
-                background: `${theme.warm}22`,
-                color: theme.warm,
-              }}
-              aria-label={t("streak_aria", { n: dailyStreak })}
-            >
-              <StreakFlame accent={theme.warm} />
-              <span className="text-[15px] font-medium tabular-nums leading-none">{dailyStreak}</span>
-            </span>
-          )}
         </button>
 
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={onDaily}
+            className={`flex h-[4.35rem] items-center gap-2.5 rounded-[1.2rem] border px-3 text-left backdrop-blur-md active:scale-[0.98] ${
+              dailyDone ? "ui-panel" : "ui-panel-active"
+            }`}
+            style={
+              dailyDone
+                ? undefined
+                : {
+                    borderColor: `${theme.warm}73`,
+                    background: `${theme.warm}24`,
+                    boxShadow: `0 0 22px ${theme.warm}28`,
+                  }
+            }
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-black/25">
+              <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="block text-[15px] font-medium leading-none">{t("daily")}</span>
+                {dailyStreak > 0 ? (
+                  <span
+                    className="flex items-center gap-0.5 text-[12px] tabular-nums"
+                    style={{ color: theme.warm }}
+                    aria-label={t("streak_aria", { n: dailyStreak })}
+                  >
+                    <StreakFlame accent={theme.warm} />
+                    {dailyStreak}
+                  </span>
+                ) : null}
+              </span>
+              <span className={`mt-1.5 block text-[11px] ${dailyDone ? "ui-muted" : "opacity-80"}`}>
+                {dailyDone ? t("daily_done") : t("daily_layout", { n: dailyReward })}
+              </span>
+            </span>
+          </button>
           <FeatureTile label={t("duel")} detail={t("duel_detail")} onClick={onDuel}>
             <DuelIcon accent={theme.warm} />
-          </FeatureTile>
-          <FeatureTile label={t("modes")} detail={t("modes_detail")} onClick={onModes}>
-            <EventIcon accent={theme.warm} />
           </FeatureTile>
         </div>
 
@@ -806,19 +1124,232 @@ function MainMenu({
   );
 }
 
-function ModesScreen({
+function QuestStrip({
+  t,
+  theme,
+  quest,
+  next,
+  pathDone,
+  onClaim,
+  onFollow,
+}: {
+  t: TranslateFn;
+  theme: VisualTheme;
+  quest: QuestView | null;
+  next: QuestView | null;
+  pathDone: boolean;
+  onClaim: (questId: string) => void;
+  onFollow: (link: QuestDeepLink) => void;
+}) {
+  if (pathDone || !quest) {
+    return (
+      <div className="ui-panel mt-2.5 flex h-[3.35rem] items-center justify-between rounded-[1.1rem] border px-3.5 backdrop-blur-md">
+        <span className="text-[13px]">{t("quest_done")}</span>
+        <span className="ui-muted text-[11px]">{t("quest_path_done")}</span>
+      </div>
+    );
+  }
+
+  const ready = quest.ready;
+
+  return (
+    <div className="mt-2.5">
+      <button
+        type="button"
+        onClick={() => {
+          if (ready) onClaim(quest.quest.id);
+          else onFollow(quest.quest.deepLink);
+        }}
+        className="flex w-full items-center gap-3 rounded-[1.15rem] border px-3.5 py-2.5 text-left backdrop-blur-md active:scale-[0.985]"
+        style={{
+          borderColor: ready ? `${theme.warm}88` : `${theme.ice}28`,
+          background: ready ? `${theme.warm}22` : "rgba(0,0,0,0.28)",
+          boxShadow: ready ? `0 0 22px ${theme.warm}2a` : undefined,
+        }}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="ui-muted text-[10px] uppercase tracking-[0.22em]">{t("quest_kicker")}</span>
+          <span className="mt-1 block text-[15px] font-medium leading-none">
+            {t(quest.quest.titleKey)}
+          </span>
+          <span className="ui-muted mt-1.5 block text-[11px] leading-snug">
+            {t(quest.quest.detailKey)}
+          </span>
+          <span className="mt-2 block h-1 overflow-hidden rounded-full bg-black/40">
+            <span
+              className="block h-full rounded-full transition-[width] duration-300"
+              style={{
+                width: `${quest.ratio * 100}%`,
+                background: ready
+                  ? `linear-gradient(90deg, ${theme.warm}, ${theme.ice})`
+                  : theme.ice,
+              }}
+            />
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          {ready ? (
+            <span
+              className="inline-block rounded-full px-2.5 py-1.5 text-[12px] font-medium"
+              style={{ background: theme.warm, color: theme.ink }}
+            >
+              {t("quest_claim", { n: quest.quest.reward })}
+            </span>
+          ) : (
+            <>
+              <span className="block text-[12px] tabular-nums" style={{ color: theme.ice }}>
+                {t("quest_progress", { n: quest.current, total: quest.target })}
+              </span>
+              <span className="ui-warm mt-1 block text-[12px]">
+                {t("quest_reward", { n: quest.quest.reward })}
+              </span>
+            </>
+          )}
+        </span>
+      </button>
+      {next ? (
+        <p className="ui-muted mt-1.5 px-1 text-[11px]">
+          {t(next.quest.titleKey)} · {t("quest_reward", { n: next.quest.reward })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function HowToScreen({
   t,
   onBack,
-  onRush,
-  onMaster,
-  onEcho,
+  onPractice,
+  onPlay,
 }: {
   t: TranslateFn;
   onBack: () => void;
+  onPractice: () => void;
+  onPlay: () => void;
+}) {
+  const rows: { title: string; detail: string; tag: string; icon: ReactNode }[] = [
+    {
+      title: t("howto_core_title"),
+      detail: t("howto_core_detail"),
+      tag: t("howto_core_tag"),
+      icon: <LearnIcon accent="var(--ui-warm)" />,
+    },
+    {
+      title: t("howto_campaign_title"),
+      detail: t("howto_campaign_detail"),
+      tag: t("howto_campaign_tag"),
+      icon: <LevelsIcon />,
+    },
+    {
+      title: t("howto_rush_title"),
+      detail: t("howto_rush_detail"),
+      tag: t("howto_rush_tag"),
+      icon: <ModeRushIcon />,
+    },
+    {
+      title: t("howto_master_title"),
+      detail: t("howto_master_detail"),
+      tag: t("howto_master_tag"),
+      icon: <ModeMasterIcon />,
+    },
+    {
+      title: t("howto_echo_title"),
+      detail: t("howto_echo_detail"),
+      tag: t("howto_echo_tag"),
+      icon: <ModeEchoIcon />,
+    },
+    {
+      title: t("howto_daily_title"),
+      detail: t("howto_daily_detail"),
+      tag: t("howto_daily_tag"),
+      icon: <DailyIcon accent="var(--ui-warm)" />,
+    },
+    {
+      title: t("howto_duel_title"),
+      detail: t("howto_duel_detail"),
+      tag: t("howto_duel_tag"),
+      icon: <DuelIcon accent="var(--ui-warm)" />,
+    },
+  ];
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ScreenHeader title={t("how_to_play")} kicker={t("howto_kicker")} backLabel={t("back_menu")} onBack={onBack} />
+      <div className="mt-5 min-h-0 flex-1 space-y-2.5 overflow-y-auto pb-2">
+        {rows.map((row) => (
+          <div
+            key={row.title}
+            className="ui-panel flex min-h-[4.6rem] items-center gap-3.5 rounded-[1.25rem] border px-3.5 py-2.5 backdrop-blur-md"
+          >
+            <span
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl"
+              style={{ background: "var(--ui-warm-soft)", color: "var(--ui-warm)" }}
+            >
+              {row.icon}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span className="text-[15px] font-medium leading-none">{row.title}</span>
+                <span className="ui-muted text-[10px] uppercase tracking-[0.16em]">{row.tag}</span>
+              </span>
+              <span className="ui-muted mt-1.5 block text-[12px] leading-snug">{row.detail}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-col gap-2 pb-1">
+        <button
+          type="button"
+          onClick={onPractice}
+          className="ui-panel flex h-12 w-full items-center justify-center rounded-[1.1rem] border text-[14px] backdrop-blur-md active:scale-[0.98]"
+        >
+          {t("howto_practice")}
+        </button>
+        <button
+          type="button"
+          onClick={onPlay}
+          className="play-seal flex h-14 w-full items-center justify-center rounded-[1.15rem] text-[15px] font-medium active:scale-[0.98]"
+        >
+          {t("play")}
+        </button>
+        <button type="button" onClick={onBack} className="ui-muted h-10 text-[13px]">
+          {t("howto_to_menu")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ModesScreen({
+  t,
+  masterLevel,
+  masterBest,
+  echoRound,
+  echoBest,
+  rushBest,
+  onBack,
+  onRush,
+  onMaster,
+  onMasterRestart,
+  onEcho,
+  onEchoRestart,
+}: {
+  t: TranslateFn;
+  masterLevel: number;
+  masterBest: number;
+  echoRound: number;
+  echoBest: number;
+  rushBest: number;
+  onBack: () => void;
   onRush: () => void;
   onMaster: () => void;
+  onMasterRestart: () => void;
   onEcho: () => void;
+  onEchoRestart: () => void;
 }) {
+  const masterResumable = masterLevel > MASTER_START_DIFFICULTY;
+  const echoResumable = echoRound > 1;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScreenHeader title={t("modes")} kicker={t("modes_kicker")} backLabel={t("back_menu")} onBack={onBack} />
@@ -827,21 +1358,42 @@ function ModesScreen({
           title={t("mode_rush")}
           detail={t("mode_rush_detail")}
           tag={t("mode_rush_tag")}
+          progress={rushBest > 0 ? t("mode_rush_best", { n: rushBest }) : undefined}
           onClick={onRush}
           icon={<ModeRushIcon />}
         />
         <ModeRow
           title={t("mode_master")}
-          detail={t("mode_master_detail")}
-          tag={t("mode_master_tag")}
+          detail={
+            masterResumable
+              ? t("mode_master_progress", { n: masterLevel, best: masterBest })
+              : t("mode_master_detail")
+          }
+          tag={masterResumable ? t("mode_continue") : t("mode_master_tag")}
+          progress={
+            !masterResumable && masterBest > 0
+              ? t("mode_master_best", { n: masterBest })
+              : undefined
+          }
           onClick={onMaster}
+          onRestart={masterResumable ? onMasterRestart : undefined}
+          restartLabel={t("mode_restart")}
           icon={<ModeMasterIcon />}
         />
         <ModeRow
           title={t("mode_echo")}
-          detail={t("mode_echo_detail")}
-          tag={t("mode_echo_tag")}
+          detail={
+            echoResumable
+              ? t("mode_echo_progress", { n: echoRound, best: echoBest })
+              : t("mode_echo_detail")
+          }
+          tag={echoResumable ? t("mode_continue") : t("mode_echo_tag")}
+          progress={
+            !echoResumable && echoBest > 0 ? t("mode_echo_best", { n: echoBest }) : undefined
+          }
           onClick={onEcho}
+          onRestart={echoResumable ? onEchoRestart : undefined}
+          restartLabel={t("mode_restart")}
           icon={<ModeEchoIcon />}
         />
       </div>
@@ -854,21 +1406,28 @@ function ModeRow({
   title,
   detail,
   tag,
+  progress,
   onClick,
+  onRestart,
+  restartLabel,
   icon,
 }: {
   title: string;
   detail: string;
   tag: string;
+  progress?: string;
   onClick: () => void;
+  onRestart?: () => void;
+  restartLabel?: string;
   icon: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ui-panel flex min-h-[5.35rem] items-center gap-3.5 rounded-[1.35rem] border px-3.5 py-3 text-left backdrop-blur-md active:scale-[0.985]"
-    >
+    <div className="ui-panel rounded-[1.35rem] border backdrop-blur-md">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-h-[5.35rem] w-full items-center gap-3.5 px-3.5 py-3 text-left active:scale-[0.985]"
+      >
       <span
         className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl"
         style={{ background: "var(--ui-warm-soft)", color: "var(--ui-warm)" }}
@@ -879,6 +1438,9 @@ function ModeRow({
         <span className="ui-accent block text-[10px] uppercase tracking-[0.22em]">{tag}</span>
         <span className="mt-1 block text-[1.2rem] font-medium leading-none tracking-wide">{title}</span>
         <span className="ui-muted mt-1.5 block text-[12px] leading-snug">{detail}</span>
+        {progress && (
+          <span className="ui-warm mt-1 block text-[11px] tracking-wide">{progress}</span>
+        )}
       </span>
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="ui-muted shrink-0 opacity-70">
         <path
@@ -890,7 +1452,17 @@ function ModeRow({
           strokeLinejoin="round"
         />
       </svg>
-    </button>
+      </button>
+      {onRestart && restartLabel && (
+        <button
+          type="button"
+          onClick={onRestart}
+          className="ui-muted border-t border-[color:var(--ui-line)] px-3.5 py-2.5 text-left text-[12px] tracking-wide active:opacity-70"
+        >
+          {restartLabel}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -1152,100 +1724,6 @@ function EventScreen({
         </button>
         <p className="ui-muted mt-auto pb-2 text-center text-[12px]">Eventy rotują co tydzień</p>
       </div>
-    </div>
-  );
-}
-
-function LevelSelect({
-  t,
-  theme,
-  current,
-  cleared,
-  endlessBest,
-  endlessOpen,
-  onBack,
-  onPick,
-  onEndless,
-}: {
-  t: TranslateFn;
-  theme: VisualTheme;
-  current: number;
-  cleared: number[];
-  endlessBest: number;
-  endlessOpen: boolean;
-  onBack: () => void;
-  onPick: (level: number) => void;
-  onEndless: () => void;
-}) {
-  const done = cleared.length;
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ScreenHeader
-        title={t("levels_title")}
-        kicker={
-          done === 0
-            ? t("levels_kicker_empty")
-            : t("levels_kicker_progress", { n: done, total: CAMPAIGN_LEVELS })
-        }
-        backLabel={t("back_menu")}
-        onBack={onBack}
-      />
-      <div className="mt-6 grid min-h-0 flex-1 grid-cols-3 content-start gap-2.5 overflow-y-auto pb-2">
-        {Array.from({ length: CAMPAIGN_LEVELS }, (_, index) => index + 1).map((level) => {
-          const clearedLevel = cleared.includes(level);
-          const open = isLevelPlayable(level, cleared);
-          const active = level === current && open;
-          const star = isConstellationLevel(level);
-          const tone = active
-            ? "ui-panel-active"
-            : !open
-              ? "ui-panel-locked"
-              : star
-                ? "ui-panel-star"
-                : clearedLevel
-                  ? "ui-panel-soft"
-                  : "ui-panel";
-          return (
-            <button
-              key={level}
-              type="button"
-              disabled={!open}
-              onClick={() => {
-                if (open) onPick(level);
-              }}
-              className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
-                open ? "active:scale-[0.98]" : "opacity-35"
-              } ${tone}`}
-            >
-              {star && open ? (
-                <span className="ui-accent mb-0.5 text-[10px]">✦</span>
-              ) : clearedLevel ? (
-                <Diamond className="mb-0.5" style={{ color: theme.ice }} />
-              ) : (
-                <span className="mb-0.5 h-2" />
-              )}
-              <span className="text-[1.65rem] font-light leading-none tabular-nums">{level}</span>
-            </button>
-          );
-        })}
-      </div>
-      <button
-        type="button"
-        disabled={!endlessOpen}
-        onClick={onEndless}
-        className={`mt-3 flex h-[4.4rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
-          endlessOpen ? "ui-panel-soft" : "ui-panel-locked"
-        }`}
-      >
-        <span className="text-[1.15rem] font-light">{t("endless")}</span>
-        <span className="ui-muted mt-1 text-[12px]">
-          {endlessOpen
-            ? endlessBest > 0
-              ? t("endless_record", { n: endlessBest })
-              : t("endless_unlocked")
-            : t("endless_locked", { n: CAMPAIGN_LEVELS })}
-        </span>
-      </button>
     </div>
   );
 }
@@ -2103,13 +2581,33 @@ function DuelIcon({ accent = "var(--ui-warm)" }: { accent?: string }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
       <path
-        d="M5.2 16.2 10.4 5.4 15.8 16.2"
+        d="M4.4 7.2c3.6 1.2 5.8 3.4 6.6 6.6"
         stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
+        strokeWidth="1.3"
+        strokeLinecap="round"
       />
-      <path d="M7.2 12h6.8" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="16.5" cy="5.8" r="1.55" fill={accent} />
+      <path
+        d="M17.6 7.2c-3.6 1.2-5.8 3.4-6.6 6.6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.4 14.8c3.6-1.2 5.8-3.4 6.6-6.6"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
+      <path
+        d="M17.6 14.8c-3.6-1.2-5.8-3.4-6.6-6.6"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
+      <circle cx="4.2" cy="11" r="1.55" fill={accent} />
+      <circle cx="17.8" cy="11" r="1.55" fill={accent} />
     </svg>
   );
 }

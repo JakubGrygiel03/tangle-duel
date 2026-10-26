@@ -75,7 +75,7 @@ export type LevelSpec = {
 export const TOUCH_RADIUS = 44;
 
 /** Kampania ma stałą długość; potem idą levele nieskończone. */
-export const CAMPAIGN_LEVELS = 60;
+export const CAMPAIGN_LEVELS = 180;
 /** Błyskawica: własna drabinka, bez figur z kampanii. */
 export const RUSH_MAX_DIFFICULTY = 24;
 /** Mistrz startuje powyżej samouczka i gęstnieje z każdym układem. */
@@ -100,84 +100,95 @@ export function specsForLevel(level: number): LevelSpec {
   const safe = Math.max(1, Math.floor(level));
 
   // Rozdział 1 — pierwsze kroki.
-  if (safe <= 10) {
-    if (safe <= 3) {
+  if (safe <= 20) {
+    if (safe <= 4) {
       return {
         nodes: safe === 1 ? 5 : 6,
-        extraEdges: safe,
+        extraEdges: Math.min(safe, 3),
         minCrossings: safe === 1 ? 1 : 2,
         innerNodes: 1,
       };
     }
-    if (safe <= 7) {
-      const nodes = safe === 4 ? 7 : safe === 7 ? 9 : 8;
+    if (safe <= 12) {
+      const nodes = safe <= 7 ? 7 : safe <= 10 ? 8 : 9;
       return {
         nodes,
-        extraEdges: 3 + (safe - 4),
+        extraEdges: 3 + Math.floor((safe - 5) / 2),
         minCrossings: 3,
         innerNodes: 2,
       };
     }
-    const nodes = safe <= 9 ? 10 : 11;
+    const nodes = safe <= 16 ? 10 : 11;
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 5 + (safe - 8)),
-      minCrossings: 4 + Math.floor((safe - 8) / 2),
+      extraEdges: Math.min(edgeCap(nodes), 5 + Math.floor((safe - 13) / 2)),
+      minCrossings: 4 + Math.floor((safe - 13) / 3),
       innerNodes: 0,
     };
   }
 
   // Rozdział 2 — gęstsza sieć.
-  if (safe <= 20) {
-    const nodes = Math.min(MAX_NODES, 11 + Math.floor((safe - 11) / 3));
+  if (safe <= 40) {
+    const nodes = Math.min(MAX_NODES, 11 + Math.floor((safe - 21) / 5));
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 6 + Math.floor((safe - 11) / 2)),
-      minCrossings: 5 + Math.floor((safe - 11) / 2),
-      innerNodes: safe <= 14 ? 1 : 0,
+      extraEdges: Math.min(edgeCap(nodes), 6 + Math.floor((safe - 21) / 3)),
+      minCrossings: 5 + Math.floor((safe - 21) / 3),
+      innerNodes: safe <= 28 ? 1 : 0,
     };
   }
 
   // Rozdział 3 — więcej przecięć.
-  if (safe <= 30) {
-    const nodes = Math.min(MAX_NODES, 12 + Math.floor((safe - 21) / 4));
+  if (safe <= 60) {
+    const nodes = Math.min(MAX_NODES, 12 + Math.floor((safe - 41) / 6));
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 8 + Math.floor((safe - 21) / 2)),
-      minCrossings: 7 + Math.floor((safe - 21) / 2),
+      extraEdges: Math.min(edgeCap(nodes), 8 + Math.floor((safe - 41) / 3)),
+      minCrossings: 7 + Math.floor((safe - 41) / 3),
       innerNodes: 0,
     };
   }
 
   // Rozdział 4 — duże konstelacje.
-  if (safe <= 40) {
-    const nodes = Math.min(MAX_NODES, 13 + Math.floor((safe - 31) / 3));
+  if (safe <= 80) {
+    const nodes = Math.min(MAX_NODES, 13 + Math.floor((safe - 61) / 5));
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 10 + Math.floor((safe - 31) / 2)),
-      minCrossings: 9 + Math.floor((safe - 31) / 2),
+      extraEdges: Math.min(edgeCap(nodes), 10 + Math.floor((safe - 61) / 3)),
+      minCrossings: 9 + Math.floor((safe - 61) / 3),
       innerNodes: 0,
     };
   }
 
   // Rozdział 5 — gęstość przy limicie węzłów.
-  if (safe <= 50) {
-    const nodes = Math.min(MAX_NODES, 14 + Math.floor((safe - 41) / 4));
+  if (safe <= 100) {
+    const nodes = Math.min(MAX_NODES, 14 + Math.floor((safe - 81) / 6));
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 12 + Math.floor((safe - 41) / 2)),
-      minCrossings: 11 + Math.floor((safe - 41) / 2),
+      extraEdges: Math.min(edgeCap(nodes), 12 + Math.floor((safe - 81) / 3)),
+      minCrossings: 11 + Math.floor((safe - 81) / 3),
       innerNodes: 0,
     };
   }
 
-  // Rozdział 6 — finał kampanii.
+  // Rozdział 6 — głęboka sieć.
+  if (safe <= 140) {
+    const nodes = MAX_NODES;
+    return {
+      nodes,
+      extraEdges: Math.min(edgeCap(nodes), 14 + Math.floor((safe - 101) / 4)),
+      minCrossings: 13 + Math.floor((safe - 101) / 5),
+      innerNodes: 0,
+    };
+  }
+
+  // Rozdział 7 — finał kampanii.
   if (safe <= CAMPAIGN_LEVELS) {
     const nodes = MAX_NODES;
     return {
       nodes,
-      extraEdges: Math.min(edgeCap(nodes), 14 + Math.floor((safe - 51) / 2)),
-      minCrossings: 13 + Math.floor((safe - 51) / 2),
+      extraEdges: Math.min(edgeCap(nodes), 16 + Math.floor((safe - 141) / 4)),
+      minCrossings: Math.min(28, 18 + Math.floor((safe - 141) / 5)),
       innerNodes: 0,
     };
   }

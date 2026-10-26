@@ -1,5 +1,9 @@
 import type { VisualTheme } from "./themes";
-import { CONSTELLATION_CRYSTAL_REWARD } from "./constellations";
+import {
+  CONSTELLATION_CRYSTAL_REWARD,
+  isConstellationLevel,
+} from "./constellations";
+import { CAMPAIGN_LEVELS, MASTER_START_DIFFICULTY } from "./graph";
 
 /** Nagroda za obejrzenie (symulowanej) reklamy. */
 export const AD_CRYSTAL_REWARD = 25;
@@ -13,18 +17,36 @@ export const ENDLESS_CRYSTAL_EVERY = 2;
 /** Kryształy za pierwsze zaliczenie poziomu. */
 export function crystalsForLevel(level: number): number {
   const safe = Math.max(1, Math.floor(level));
-  if (safe <= 20) return 5;
-  if (safe <= 40) return 10;
-  if (safe <= 60) return 12 + Math.floor((safe - 41) / 10);
+  if (safe <= 40) return 5;
+  if (safe <= 80) return 10;
+  if (safe <= 120) return 12 + Math.floor((safe - 81) / 15);
+  if (safe <= CAMPAIGN_LEVELS) return 14 + Math.floor((safe - 121) / 15);
   // Nieskończone: wolniejszy dopływ.
   return safe % ENDLESS_CRYSTAL_EVERY === 0 ? 1 : 0;
 }
 
 /** Dodatkowy bonus za konstelację (nakłada się na bazę poziomu). */
 export function constellationBonus(level: number): number {
-  const safe = Math.max(1, Math.floor(level));
-  if (safe % 5 !== 0 || safe > 60) return 0;
-  return CONSTELLATION_CRYSTAL_REWARD;
+  return isConstellationLevel(level) ? CONSTELLATION_CRYSTAL_REWARD : 0;
+}
+
+/** Kryształy za układ w trybie Mistrz (rosną z trudnością). */
+export function crystalsForMasterClear(difficulty: number, perfect: boolean): number {
+  const step = Math.max(0, Math.floor(difficulty) - MASTER_START_DIFFICULTY);
+  const base = 4 + Math.floor(step / 3);
+  return Math.min(18, base) + (perfect ? PERFECT_MOVE_BONUS : 0);
+}
+
+/** Kryształy za układ w trybie Echo. */
+export function crystalsForEchoClear(round: number, perfect: boolean): number {
+  const base = 3 + Math.floor(Math.max(0, Math.floor(round) - 1) / 4);
+  return Math.min(12, base) + (perfect ? PERFECT_MOVE_BONUS : 0);
+}
+
+/** Kryształy na koniec biegu Błyskawicy. */
+export function crystalsForRushRun(cleared: number): number {
+  const safe = Math.max(0, Math.floor(cleared));
+  return Math.min(40, safe * 2);
 }
 
 /**
@@ -33,23 +55,24 @@ export function constellationBonus(level: number): number {
  */
 export function themeCrystalPrice(theme: VisualTheme): number | null {
   if (theme.unlockAt <= 0 && theme.unlockEndless <= 0) return null;
+  // Rosnąco z trudnością odblokowania — późniejsze motywy wyraźnie droższe.
   switch (theme.id) {
-    case "garden":
-      return 150;
-    case "abyss":
+    case "nebula":
       return 200;
     case "glacier":
-      return 250;
+      return 350;
     case "ember":
-      return 400;
-    case "aurora":
       return 500;
-    case "nebula":
-      return 800;
+    case "garden":
+      return 700;
+    case "abyss":
+      return 850;
     case "gold":
       return 1000;
+    case "aurora":
+      return 1200;
     default:
-      return 30 + theme.unlockAt;
+      return 30 + Math.max(theme.unlockAt, theme.unlockEndless);
   }
 }
 

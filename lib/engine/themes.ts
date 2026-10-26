@@ -1,3 +1,5 @@
+import { CAMPAIGN_LEVELS } from "./graph";
+
 export type ThemeId =
   | "dusk"
   | "nebula"
@@ -52,7 +54,7 @@ export const THEMES: readonly VisualTheme[] = [
     unlockEndless: 0,
     ink: "#09090b",
     ice: "#e0f2fe",
-    warm: "#f97316",
+    warm: "#fdba74",
     spark: "#ef4444",
     sky: { a: "rgba(67, 56, 140, 0.55)", b: "rgba(30, 27, 75, 0.32)", c: "rgba(9, 9, 11, 0)" },
     tide: { a: "rgba(12, 74, 110, 0.38)", b: "rgba(9, 9, 11, 0)", c: "rgba(9, 9, 11, 0)" },
@@ -75,7 +77,7 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "nebula",
     name: "Mgławica",
-    unlockAt: 10,
+    unlockAt: 36,
     unlockEndless: 0,
     ink: "#07060f",
     ice: "#f5e1ff",
@@ -102,7 +104,7 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "glacier",
     name: "Lodowiec",
-    unlockAt: 20,
+    unlockAt: 72,
     unlockEndless: 0,
     ink: "#061018",
     ice: "#ecfeff",
@@ -129,7 +131,7 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "ember",
     name: "Ember",
-    unlockAt: 30,
+    unlockAt: 108,
     unlockEndless: 0,
     ink: "#120808",
     ice: "#fff7ed",
@@ -156,7 +158,7 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "garden",
     name: "Ogród",
-    unlockAt: 40,
+    unlockAt: 144,
     unlockEndless: 0,
     ink: "#07140c",
     ice: "#ecfdf5",
@@ -183,8 +185,8 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "abyss",
     name: "Głębia",
-    unlockAt: 50,
-    unlockEndless: 0,
+    unlockAt: 0,
+    unlockEndless: 45,
     ink: "#04060f",
     ice: "#e0e7ff",
     warm: "#818cf8",
@@ -210,8 +212,8 @@ export const THEMES: readonly VisualTheme[] = [
   {
     id: "gold",
     name: "Złoto",
-    unlockAt: 60,
-    unlockEndless: 0,
+    unlockAt: 0,
+    unlockEndless: 90,
     ink: "#100c04",
     ice: "#fffbeb",
     warm: "#fbbf24",
@@ -238,7 +240,7 @@ export const THEMES: readonly VisualTheme[] = [
     id: "aurora",
     name: "Zorza",
     unlockAt: 0,
-    unlockEndless: 75,
+    unlockEndless: 135,
     ink: "#050914",
     ice: "#f0fdfa",
     warm: "#2dd4bf",
@@ -318,8 +320,6 @@ export function computeUnlockedThemes(
   ).map((theme) => theme.id);
 }
 
-const CAMPAIGN = 60;
-
 /** Motywy nowo otwarte po zaliczeniu danego poziomu. */
 export function themesUnlockedByClear(
   level: number,
@@ -328,15 +328,16 @@ export function themesUnlockedByClear(
   purchased: readonly ThemeId[] = [],
 ): VisualTheme[] {
   const beforeCampaign = clearedCampaign.filter((item) => item !== level);
-  const beforeEndless = level > CAMPAIGN ? Math.min(endlessBest, level - 1) : endlessBest;
+  const beforeEndless =
+    level > CAMPAIGN_LEVELS ? Math.min(endlessBest, level - 1) : endlessBest;
   const before = new Set(computeUnlockedThemes(beforeCampaign, beforeEndless, purchased));
   const afterCampaign =
-    level <= CAMPAIGN
+    level <= CAMPAIGN_LEVELS
       ? clearedCampaign.includes(level)
         ? clearedCampaign
         : [...clearedCampaign, level]
       : clearedCampaign;
-  const afterEndless = level > CAMPAIGN ? Math.max(endlessBest, level) : endlessBest;
+  const afterEndless = level > CAMPAIGN_LEVELS ? Math.max(endlessBest, level) : endlessBest;
   return THEMES.filter(
     (theme) =>
       !before.has(theme.id) && isThemeUnlocked(theme, afterCampaign, afterEndless, purchased),

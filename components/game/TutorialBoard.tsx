@@ -17,26 +17,30 @@ import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
 import { getTheme, themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
+import type { TranslateFn } from "@/lib/i18n";
 
 const GUIDE = 3;
 /** Jak w normalnej rozgrywce: czysty układ musi tyle wytrzymać. */
 const HOLD_MS = 3000;
 
+/** Cztery węzły na okręgu — jeden czytelny krzyż (średnice). */
 const UNITS: ReadonlyArray<readonly [number, number]> = [
-  [0, -0.7],
-  [0.72, 0.2],
-  [0, 0.72],
-  [-0.72, 0.08],
-  [-0.46, -0.58],
+  [0, -0.78],
+  [0.78, 0.05],
+  [0, 0.78],
+  [-0.78, 0.05],
 ];
 
-const GOAL: readonly [number, number] = [0.34, -0.22];
+/**
+ * Cel w dolnym-prawym „pustym” kieszeni wewnątrz okręgu —
+ * daleko od przecięcia w środku i od nici 0–2 / 1–3.
+ */
+const GOAL: readonly [number, number] = [0.48, 0.42];
 
 const EDGES = [
-  { a: 0, b: 1 },
   { a: 0, b: 2 },
   { a: 1, b: 3 },
-  { a: 4, b: 0 },
+  { a: 0, b: 1 },
 ];
 
 function tutorialChrome(height: number, chrome?: ArenaChrome): ArenaChrome {
@@ -86,6 +90,7 @@ export function TutorialBoard({
   haptics,
   theme,
   firstVisit,
+  t,
   onSkip,
   onFinish,
 }: {
@@ -93,6 +98,7 @@ export function TutorialBoard({
   haptics: boolean;
   theme?: VisualTheme;
   firstVisit: boolean;
+  t: TranslateFn;
   onSkip: () => void;
   onFinish: () => void;
 }) {
@@ -233,10 +239,16 @@ export function TutorialBoard({
       ctx.lineWidth = 1.6;
       ctx.stroke();
 
+      // Gniazdo-cel: duży diament + pierścień, oddzielony wizualnie od węzłów.
       ctx.save();
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.55 + pulse * 0.2;
+      ctx.strokeStyle = "rgba(224, 242, 254, 0.85)";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(goal.x, goal.y, 16 + pulse * 3, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.fillStyle = "#e0f2fe";
-      drawDiamond(ctx, goal.x, goal.y, 7);
+      drawDiamond(ctx, goal.x, goal.y, 9);
       ctx.fill();
       ctx.restore();
 
@@ -382,14 +394,14 @@ export function TutorialBoard({
   }, []);
 
   const line = solved
-    ? "Tak. Nic się nie krzyżuje."
+    ? t("tutorial_line_solved")
     : countdown !== null
-      ? "Trzymaj układ bez przecięć."
+      ? t("tutorial_line_hold")
       : dragging
-        ? "Puść przy jasnym punkcie."
+        ? t("tutorial_line_drop")
         : crossed
-          ? "Złap kryształ w kółku i przesuń do jasnego punktu."
-          : "Puść, gdy nić zrobi się biała.";
+          ? t("tutorial_line_grab")
+          : t("tutorial_line_white");
 
   return (
     <div
@@ -404,20 +416,20 @@ export function TutorialBoard({
           ref={canvasRef}
           className="absolute inset-0 h-full w-full touch-none"
           role="application"
-          aria-label="Samouczek. Przeciągnij kryształ w kółku do jasnego punktu, aż nici przestaną się krzyżować."
+          aria-label={t("tutorial_aria")}
         />
         <div className="pointer-events-none absolute inset-0">
           <div
             ref={headerRef}
             className="flex items-center justify-between gap-3 px-5 pt-[max(0.85rem,env(safe-area-inset-top))]"
           >
-            <h1 className="text-4xl font-light leading-none tracking-[-0.03em]">Samouczek</h1>
+            <h1 className="text-4xl font-light leading-none tracking-[-0.03em]">{t("tutorial_title")}</h1>
             <button
               type="button"
               onClick={onSkip}
               className="ui-muted pointer-events-auto h-11 shrink-0 px-2 text-sm"
             >
-              Pomiń
+              {t("tutorial_skip")}
             </button>
           </div>
 
@@ -437,16 +449,14 @@ export function TutorialBoard({
           <div ref={cardRef} className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="ui-panel rounded-[1.4rem] border bg-black/70 px-5 py-4 backdrop-blur-md">
               <p className="text-lg font-light leading-snug">{line}</p>
-              <p className="ui-muted mt-2 text-[13px] leading-relaxed">
-                Ciepła nić się krzyżuje. Jasna jest wolna.
-              </p>
+              <p className="ui-muted mt-2 text-[13px] leading-relaxed">{t("tutorial_hint")}</p>
               {solved && (
                 <button
                   type="button"
                   onClick={onFinish}
                   className="play-seal pointer-events-auto mt-4 h-14 w-full rounded-[1.1rem] text-base font-medium"
                 >
-                  {firstVisit ? "Dalej" : "Wracam"}
+                  {firstVisit ? t("tutorial_next") : t("tutorial_back")}
                 </button>
               )}
             </div>

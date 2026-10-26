@@ -12,6 +12,37 @@ export type MessageKey =
   | "streak_aria"
   | "duel"
   | "duel_detail"
+  | "duel_kicker"
+  | "duel_footer"
+  | "duel_couch"
+  | "duel_couch_detail"
+  | "duel_couch_tag"
+  | "duel_online"
+  | "duel_online_detail"
+  | "duel_online_tag"
+  | "duel_online_kicker"
+  | "duel_online_intro"
+  | "duel_create"
+  | "duel_join"
+  | "duel_code_friend"
+  | "duel_room_code"
+  | "duel_waiting"
+  | "duel_connected_host"
+  | "duel_connected_guest"
+  | "duel_connecting"
+  | "duel_start"
+  | "duel_draw"
+  | "duel_draw_detail"
+  | "duel_win"
+  | "duel_win_detail"
+  | "duel_rival"
+  | "duel_rival_detail"
+  | "duel_again"
+  | "duel_end"
+  | "duel_error"
+  | "duel_error_open"
+  | "duel_error_find"
+  | "duel_code_needed"
   | "modes"
   | "modes_detail"
   | "levels"
@@ -43,12 +74,19 @@ export type MessageKey =
   | "mode_rush"
   | "mode_rush_detail"
   | "mode_rush_tag"
+  | "mode_rush_best"
   | "mode_master"
   | "mode_master_detail"
   | "mode_master_tag"
+  | "mode_master_progress"
+  | "mode_master_best"
   | "mode_echo"
   | "mode_echo_detail"
   | "mode_echo_tag"
+  | "mode_echo_progress"
+  | "mode_echo_best"
+  | "mode_continue"
+  | "mode_restart"
   | "rush_over"
   | "rush_again"
   | "menu"
@@ -61,6 +99,20 @@ export type MessageKey =
   | "levels_title"
   | "levels_kicker_empty"
   | "levels_kicker_progress"
+  | "map_path"
+  | "map_realm_locked"
+  | "map_constellation"
+  | "map_continue"
+  | "realm_dusk"
+  | "realm_dusk_detail"
+  | "realm_nebula"
+  | "realm_nebula_detail"
+  | "realm_glacier"
+  | "realm_glacier_detail"
+  | "realm_ember"
+  | "realm_ember_detail"
+  | "realm_garden"
+  | "realm_garden_detail"
   | "endless"
   | "endless_record"
   | "endless_unlocked"
@@ -108,6 +160,21 @@ export type MessageKey =
   | "daily_streak_reward"
   | "album_unlock"
   | "progress_reset"
+  | "daily_reminder"
+  | "daily_reminder_on"
+  | "daily_reminder_off"
+  | "daily_reminder_denied"
+  | "daily_reminder_unsupported"
+  | "daily_reminder_prompt"
+  | "daily_reminder_title"
+  | "daily_reminder_body"
+  | "account_google"
+  | "account_google_detail"
+  | "account_google_signin"
+  | "account_google_signout"
+  | "account_google_signed"
+  | "account_google_missing"
+  | "account_google_error"
   | "payments_soon"
   | "constellation_intro_kicker"
   | "constellation_intro_title"
@@ -132,7 +199,64 @@ export type MessageKey =
   | "board_aria"
   | "canvas_error"
   | "album_found_meta"
-  | "album_locked_meta";
+  | "album_locked_meta"
+  | "quest_kicker"
+  | "quest_claim"
+  | "quest_done"
+  | "quest_path_done"
+  | "quest_progress"
+  | "quest_reward"
+  | "quest_q1_title"
+  | "quest_q1_detail"
+  | "quest_q2_title"
+  | "quest_q2_detail"
+  | "quest_q3_title"
+  | "quest_q3_detail"
+  | "quest_q4_title"
+  | "quest_q4_detail"
+  | "quest_q5_title"
+  | "quest_q5_detail"
+  | "quest_q6_title"
+  | "quest_q6_detail"
+  | "quest_q7_title"
+  | "quest_q7_detail"
+  | "quest_q8_title"
+  | "quest_q8_detail"
+  | "tutorial_title"
+  | "tutorial_skip"
+  | "tutorial_next"
+  | "tutorial_back"
+  | "tutorial_hint"
+  | "tutorial_line_grab"
+  | "tutorial_line_drop"
+  | "tutorial_line_hold"
+  | "tutorial_line_white"
+  | "tutorial_line_solved"
+  | "tutorial_aria"
+  | "howto_kicker"
+  | "howto_practice"
+  | "howto_to_menu"
+  | "howto_core_title"
+  | "howto_core_detail"
+  | "howto_core_tag"
+  | "howto_campaign_title"
+  | "howto_campaign_detail"
+  | "howto_campaign_tag"
+  | "howto_rush_title"
+  | "howto_rush_detail"
+  | "howto_rush_tag"
+  | "howto_master_title"
+  | "howto_master_detail"
+  | "howto_master_tag"
+  | "howto_echo_title"
+  | "howto_echo_detail"
+  | "howto_echo_tag"
+  | "howto_daily_title"
+  | "howto_daily_detail"
+  | "howto_daily_tag"
+  | "howto_duel_title"
+  | "howto_duel_detail"
+  | "howto_duel_tag";
 
 type Dict = Record<MessageKey, string>;
 
@@ -147,6 +271,37 @@ const en: Dict = {
   streak_aria: "Streak {n} days",
   duel: "Duel",
   duel_detail: "Couch or code",
+  duel_kicker: "Same layout · first clear wins",
+  duel_footer: "One phone face-to-face · or a room code online",
+  duel_couch: "One phone",
+  duel_couch_detail: "Split screen · sit across from each other",
+  duel_couch_tag: "Couch",
+  duel_online: "Two phones",
+  duel_online_detail: "Share a room code · race live",
+  duel_online_tag: "Online",
+  duel_online_kicker: "Two phones",
+  duel_online_intro: "Host a room or enter a friend’s code. No account needed.",
+  duel_create: "Create room",
+  duel_join: "Join",
+  duel_code_friend: "Friend’s code",
+  duel_room_code: "Room code",
+  duel_waiting: "Waiting for rival…",
+  duel_connected_host: "Connected. Starting soon…",
+  duel_connected_guest: "Connected. Waiting for start…",
+  duel_connecting: "Connecting…",
+  duel_start: "Start",
+  duel_draw: "Draw",
+  duel_draw_detail: "Almost together — beautiful.",
+  duel_win: "You win",
+  duel_win_detail: "Clean strings first — well played.",
+  duel_rival: "Rival wins",
+  duel_rival_detail: "Great round. The next one can be yours.",
+  duel_again: "Again",
+  duel_end: "Ended",
+  duel_error: "Error",
+  duel_error_open: "Couldn’t open the room.",
+  duel_error_find: "Room not found.",
+  duel_code_needed: "Enter the code from your friend.",
   modes: "Modes",
   modes_detail: "Lightning · Echo",
   levels: "Levels",
@@ -169,21 +324,28 @@ const en: Dict = {
   duel_settings_detail: "Race on two phones",
   tutorial_again: "Show again",
   reset_progress: "Reset progress",
-  reset_detail: "Levels, crystals, album and shop from scratch",
+  reset_detail: "Levels & album from scratch · premium and account stay",
   reset_confirm: "Really clear?",
-  reset_confirm_detail: "Tap again — start from level 1",
+  reset_confirm_detail: "Tap again — start from level 1 · purchases kept",
   back_menu: "Back to menu",
   modes_kicker: "Play variants",
-  modes_footer: "Own layouts · no figures from levels",
+  modes_footer: "Master & Echo save progress · crystals for every clear",
   mode_rush: "Lightning",
-  mode_rush_detail: "15 s · each clear +4 s · steadily harder",
+  mode_rush_detail: "15 s · each clear +4 s · crystals at the finish",
   mode_rush_tag: "Tempo",
+  mode_rush_best: "Best: {n}",
   mode_master: "Master",
-  mode_master_detail: "Own layouts, steadily harder · stay inside the move limit",
+  mode_master_detail: "Own layouts, steadily harder · stay inside the move limit · crystals",
   mode_master_tag: "Precision",
+  mode_master_progress: "Difficulty {n} · best {best}",
+  mode_master_best: "Best difficulty: {n}",
   mode_echo: "Echo",
-  mode_echo_detail: "Hidden strings · same weight, a new layout each time",
+  mode_echo_detail: "Hidden strings · same weight, a new layout each time · crystals",
   mode_echo_tag: "Senses",
+  mode_echo_progress: "Layout {n} · best {best}",
+  mode_echo_best: "Best streak: {n}",
+  mode_continue: "Continue",
+  mode_restart: "Start from the beginning",
   rush_over: "Run over",
   rush_again: "Again",
   menu: "Menu",
@@ -193,9 +355,23 @@ const en: Dict = {
   album_preview_hint: "Assemble this outline on the board — crystals snap into light wells.",
   album_close: "Close",
   level_word: "Level",
-  levels_title: "Levels",
-  levels_kicker_empty: "Campaign 1–60",
-  levels_kicker_progress: "{n} / {total}",
+  levels_title: "Journey",
+  levels_kicker_empty: "Five lands · one path",
+  levels_kicker_progress: "{n} / {total} cleared",
+  map_path: "Path",
+  map_realm_locked: "Reach level {n}",
+  map_constellation: "Figure",
+  map_continue: "Continue",
+  realm_dusk: "Dusk Shore",
+  realm_dusk_detail: "First knots · soft twilight",
+  realm_nebula: "Nebula Veil",
+  realm_nebula_detail: "Denser strings · violet mist",
+  realm_glacier: "Glacier Pass",
+  realm_glacier_detail: "Cold light · sharper crossings",
+  realm_ember: "Ember Ridge",
+  realm_ember_detail: "Hot tension · long pulls",
+  realm_garden: "Garden Gate",
+  realm_garden_detail: "Final folds · quiet bloom",
   endless: "Endless",
   endless_record: "Record: level {n}",
   endless_unlocked: "After campaign · no end",
@@ -242,12 +418,27 @@ const en: Dict = {
   daily_reward: "Daily! +{n} crystals",
   daily_streak_reward: "Daily · streak {n} · +{crystals}",
   album_unlock: "Album: {name} · +{n}",
-  progress_reset: "Progress cleared · level 1",
+  progress_reset: "Progress cleared · level 1 · premium kept",
+  daily_reminder: "Daily reminder",
+  daily_reminder_on: "On · around 10:00",
+  daily_reminder_off: "Off · tap to enable",
+  daily_reminder_denied: "Notifications blocked in system settings",
+  daily_reminder_unsupported: "Notifications unavailable here",
+  daily_reminder_prompt: "Remind you about Daily each morning?",
+  daily_reminder_title: "Daily is waiting",
+  daily_reminder_body: "A new tangle is ready · open Tangle Duel",
+  account_google: "Google account",
+  account_google_detail: "Link progress · Play / cloud ready",
+  account_google_signin: "Sign in with Google",
+  account_google_signout: "Sign out",
+  account_google_signed: "Signed in as {name}",
+  account_google_missing: "Add NEXT_PUBLIC_GOOGLE_CLIENT_ID to enable login",
+  account_google_error: "Could not sign in · try again",
   payments_soon: "Payments coming soon",
   constellation_intro_kicker: "Constellation",
   constellation_intro_title: "Assemble the star figure",
   constellation_intro_body:
-    "Every few levels an outline appears — a gem, animal, or plant. Pull crystals into the light wells until the strings form the figure. First discovery goes to the Album.",
+    "Every 6 levels an outline appears — animals, plants, and objects from the album. Pull crystals into the light wells until the strings form the figure. First discovery goes to the Album.",
   constellation_intro_ok: "Got it",
   kind_animal: "Animal",
   kind_plant: "Plant",
@@ -269,6 +460,63 @@ const en: Dict = {
   canvas_error: "This browser did not provide a canvas. Open the game in current Safari or Chrome.",
   album_found_meta: "{kind} · lv. {n}",
   album_locked_meta: "Level {n}",
+  quest_kicker: "Quest",
+  quest_claim: "Claim +{n}",
+  quest_done: "Path complete",
+  quest_path_done: "All quests claimed",
+  quest_progress: "{n} / {total}",
+  quest_reward: "+{n}",
+  quest_q1_title: "First knots",
+  quest_q1_detail: "Clear 3 campaign levels",
+  quest_q2_title: "Daylight string",
+  quest_q2_detail: "Claim today's Daily",
+  quest_q3_title: "Flash hands",
+  quest_q3_detail: "Clear 5 layouts in Rush",
+  quest_q4_title: "Star figure",
+  quest_q4_detail: "Reveal 1 constellation",
+  quest_q5_title: "Steady path",
+  quest_q5_detail: "Clear 10 campaign levels",
+  quest_q6_title: "Rival thread",
+  quest_q6_detail: "Open a duel once",
+  quest_q7_title: "Far shore",
+  quest_q7_detail: "Reach campaign level 20",
+  quest_q8_title: "Rush master",
+  quest_q8_detail: "Clear 15 layouts in Rush total",
+  tutorial_title: "Tutorial",
+  tutorial_skip: "Skip",
+  tutorial_next: "Next",
+  tutorial_back: "Back",
+  tutorial_hint: "Warm string = crossing. Bright string = free.",
+  tutorial_line_grab: "Grab the crystal in the orange ring → drag to the bright point in open space.",
+  tutorial_line_drop: "Release on the bright point.",
+  tutorial_line_hold: "Hold the layout with no crossings.",
+  tutorial_line_white: "Release when the string turns bright.",
+  tutorial_line_solved: "Yes. Nothing crosses.",
+  tutorial_aria: "Tutorial. Drag the ringed crystal to the bright point until strings stop crossing.",
+  howto_kicker: "Rules & modes",
+  howto_practice: "Practice gesture",
+  howto_to_menu: "To menu",
+  howto_core_title: "The core",
+  howto_core_detail: "Drag crystals in the circle. Warm = crossing, bright = free. Hold 3 s clear to finish.",
+  howto_core_tag: "Basics",
+  howto_campaign_title: "Journey",
+  howto_campaign_detail: "Levels through five lands. Every 6th level reveals a constellation for the album.",
+  howto_campaign_tag: "Campaign",
+  howto_rush_title: "Rush",
+  howto_rush_detail: "Timed runs. Each clear adds time. Chase your best streak.",
+  howto_rush_tag: "Modes",
+  howto_master_title: "Master",
+  howto_master_detail: "Your own nodes, limited moves, rising difficulty.",
+  howto_master_tag: "Modes",
+  howto_echo_title: "Echo",
+  howto_echo_detail: "Strings stay hidden. Touch a crystal for a brief sonar flash.",
+  howto_echo_tag: "Modes",
+  howto_daily_title: "Daily",
+  howto_daily_detail: "One shared layout each day. Streak and crystals for the claim.",
+  howto_daily_tag: "Challenge",
+  howto_duel_title: "Duel",
+  howto_duel_detail: "Couch split-screen or a room code on two phones. Same tangle — first clear wins.",
+  howto_duel_tag: "1v1",
 };
 
 const pl: Dict = {
@@ -283,6 +531,37 @@ const pl: Dict = {
   streak_aria: "Seria {n} dni",
   duel: "Pojedynek",
   duel_detail: "Kanapa lub kod",
+  duel_kicker: "Ten sam układ · kto pierwszy, wygrywa",
+  duel_footer: "Jeden telefon naprzeciw siebie · albo kod pokoju online",
+  duel_couch: "Jeden telefon",
+  duel_couch_detail: "Split screen · naprzeciw siebie",
+  duel_couch_tag: "Kanapa",
+  duel_online: "Dwa telefony",
+  duel_online_detail: "Kod pokoju · wyścig na żywo",
+  duel_online_tag: "Online",
+  duel_online_kicker: "Dwa telefony",
+  duel_online_intro: "Stwórz pokój albo wpisz kod od znajomego. Bez konta.",
+  duel_create: "Stwórz pokój",
+  duel_join: "Dołącz",
+  duel_code_friend: "Kod znajomego",
+  duel_room_code: "Kod pokoju",
+  duel_waiting: "Czekam na rywala…",
+  duel_connected_host: "Połączono. Start zaraz…",
+  duel_connected_guest: "Połączono. Czekam na start…",
+  duel_connecting: "Łączę…",
+  duel_start: "Start",
+  duel_draw: "Remis",
+  duel_draw_detail: "Prawie równocześnie — pięknie.",
+  duel_win: "Wygrywasz",
+  duel_win_detail: "Czyste struny pierwsze — brawo.",
+  duel_rival: "Wygrywa rywal",
+  duel_rival_detail: "Świetna runda. Następna może być Twoja.",
+  duel_again: "Jeszcze raz",
+  duel_end: "Koniec",
+  duel_error: "Błąd",
+  duel_error_open: "Nie udało się otworzyć pokoju.",
+  duel_error_find: "Nie znaleziono pokoju.",
+  duel_code_needed: "Wpisz kod od znajomego.",
   modes: "Tryby",
   modes_detail: "Błyskawica · Echo",
   levels: "Poziomy",
@@ -305,21 +584,28 @@ const pl: Dict = {
   duel_settings_detail: "Wyścig na dwóch telefonach",
   tutorial_again: "Pokaż jeszcze raz",
   reset_progress: "Resetuj postęp",
-  reset_detail: "Poziomy, kryształy, album i sklep od zera",
+  reset_detail: "Poziomy i album od zera · premium i konto zostają",
   reset_confirm: "Na pewno wyczyścić?",
-  reset_confirm_detail: "Stuknij jeszcze raz — start od poziomu 1",
+  reset_confirm_detail: "Stuknij jeszcze raz — start od 1 · zakupy zostają",
   back_menu: "Wróć do menu",
   modes_kicker: "Warianty rozgrywki",
-  modes_footer: "Własne układy · bez figur z poziomów",
+  modes_footer: "Mistrz i Echo zapisują postęp · kryształy za każde rozplątanie",
   mode_rush: "Błyskawica",
-  mode_rush_detail: "15 s · każde rozplątanie +4 s · coraz gęściej",
+  mode_rush_detail: "15 s · każde rozplątanie +4 s · kryształy na koniec biegu",
   mode_rush_tag: "Tempo",
+  mode_rush_best: "Rekord: {n}",
   mode_master: "Mistrz",
-  mode_master_detail: "Własne układy, coraz trudniejsze · limit ruchów",
+  mode_master_detail: "Własne układy, coraz trudniejsze · limit ruchów · kryształy",
   mode_master_tag: "Precyzja",
+  mode_master_progress: "Trudność {n} · rekord {best}",
+  mode_master_best: "Rekord trudności: {n}",
   mode_echo: "Echo",
-  mode_echo_detail: "Ukryte struny · ta sama waga, nowy układ",
+  mode_echo_detail: "Ukryte struny · ta sama waga, nowy układ · kryształy",
   mode_echo_tag: "Zmysły",
+  mode_echo_progress: "Układ {n} · rekord {best}",
+  mode_echo_best: "Najlepsza seria: {n}",
+  mode_continue: "Kontynuuj",
+  mode_restart: "Od początku",
   rush_over: "Koniec biegu",
   rush_again: "Jeszcze raz",
   menu: "Menu",
@@ -329,9 +615,23 @@ const pl: Dict = {
   album_preview_hint: "Złóż ten zarys na planszy — kryształy wpadają w świetlne gniazda.",
   album_close: "Zamknij",
   level_word: "Poziom",
-  levels_title: "Poziomy",
-  levels_kicker_empty: "Kampania 1–60",
-  levels_kicker_progress: "{n} / {total}",
+  levels_title: "Podróż",
+  levels_kicker_empty: "Pięć krain · jedna ścieżka",
+  levels_kicker_progress: "{n} / {total} zaliczonych",
+  map_path: "Ścieżka",
+  map_realm_locked: "Do poziomu {n}",
+  map_constellation: "Figura",
+  map_continue: "Kontynuuj",
+  realm_dusk: "Brzeg Zmierzchu",
+  realm_dusk_detail: "Pierwsze węzły · miękki zmrok",
+  realm_nebula: "Zasłona Mgławicy",
+  realm_nebula_detail: "Gęstsze struny · fioletowa mgła",
+  realm_glacier: "Przełęcz Lodowca",
+  realm_glacier_detail: "Zimne światło · ostrzejsze przecięcia",
+  realm_ember: "Grzbiet Ember",
+  realm_ember_detail: "Gorące napięcie · dłuższe ciągi",
+  realm_garden: "Brama Ogrodu",
+  realm_garden_detail: "Ostatnie fałdy · cichy rozkwit",
   endless: "Nieskończone",
   endless_record: "Rekord: poziom {n}",
   endless_unlocked: "Po kampanii · bez końca",
@@ -378,12 +678,27 @@ const pl: Dict = {
   daily_reward: "Daily! +{n} kryształów",
   daily_streak_reward: "Daily · seria {n} · +{crystals}",
   album_unlock: "Album: {name} · +{n}",
-  progress_reset: "Postęp wyczyszczony · poziom 1",
+  progress_reset: "Postęp wyczyszczony · poziom 1 · premium zostaje",
+  daily_reminder: "Przypomnienie Daily",
+  daily_reminder_on: "Włączone · około 10:00",
+  daily_reminder_off: "Wyłączone · stuknij, by włączyć",
+  daily_reminder_denied: "Powiadomienia zablokowane w systemie",
+  daily_reminder_unsupported: "Powiadomienia niedostępne tutaj",
+  daily_reminder_prompt: "Przypominać rano o Daily?",
+  daily_reminder_title: "Daily czeka",
+  daily_reminder_body: "Nowy układ jest gotowy · otwórz Tangle Duel",
+  account_google: "Konto Google",
+  account_google_detail: "Powiąż postęp · gotowe pod Play",
+  account_google_signin: "Zaloguj przez Google",
+  account_google_signout: "Wyloguj",
+  account_google_signed: "Zalogowano: {name}",
+  account_google_missing: "Dodaj NEXT_PUBLIC_GOOGLE_CLIENT_ID, by włączyć logowanie",
+  account_google_error: "Nie udało się zalogować · spróbuj ponownie",
   payments_soon: "Płatności wkrótce",
   constellation_intro_kicker: "Konstelacja",
   constellation_intro_title: "Ułóż gwiazdozbiór",
   constellation_intro_body:
-    "Co kilka poziomów pojawia się zarys — diament, zwierzę, roślina. Wciągnij kryształy w świetlne gniazda, aż struny złożą figurę. Pierwsze odkrycie trafia do Albumu.",
+    "Co 6 poziomów pojawia się zarys — zwierzęta, rośliny i przedmioty z albumu. Wciągnij kryształy w świetlne gniazda, aż struny złożą figurę. Pierwsze odkrycie trafia do Albumu.",
   constellation_intro_ok: "Rozumiem",
   kind_animal: "Zwierzę",
   kind_plant: "Roślina",
@@ -405,6 +720,63 @@ const pl: Dict = {
   canvas_error: "Ta przeglądarka nie udostępniła płótna. Otwórz grę w aktualnym Safari lub Chrome.",
   album_found_meta: "{kind} · poz. {n}",
   album_locked_meta: "Poziom {n}",
+  quest_kicker: "Misja",
+  quest_claim: "Odbierz +{n}",
+  quest_done: "Ścieżka ukończona",
+  quest_path_done: "Wszystkie misje odebrane",
+  quest_progress: "{n} / {total}",
+  quest_reward: "+{n}",
+  quest_q1_title: "Pierwsze węzły",
+  quest_q1_detail: "Zalicz 3 poziomy kampanii",
+  quest_q2_title: "Dzienna nić",
+  quest_q2_detail: "Odbierz dzisiejsze Daily",
+  quest_q3_title: "Błyskawica",
+  quest_q3_detail: "Zalicz 5 układów w Błyskawicy",
+  quest_q4_title: "Figura gwiazd",
+  quest_q4_detail: "Odkryj 1 konstelację",
+  quest_q5_title: "Stała ścieżka",
+  quest_q5_detail: "Zalicz 10 poziomów kampanii",
+  quest_q6_title: "Nić rywala",
+  quest_q6_detail: "Otwórz pojedynek raz",
+  quest_q7_title: "Daleki brzeg",
+  quest_q7_detail: "Dotrzyj do poziomu 20",
+  quest_q8_title: "Mistrz Błyskawicy",
+  quest_q8_detail: "Zalicz 15 układów Błyskawicy łącznie",
+  tutorial_title: "Samouczek",
+  tutorial_skip: "Pomiń",
+  tutorial_next: "Dalej",
+  tutorial_back: "Wracam",
+  tutorial_hint: "Ciepła nić się krzyżuje. Jasna jest wolna.",
+  tutorial_line_grab: "Złap kryształ w pomarańczowym kółku → przeciągnij na jasny punkt w wolnym miejscu.",
+  tutorial_line_drop: "Puść przy jasnym punkcie.",
+  tutorial_line_hold: "Trzymaj układ bez przecięć.",
+  tutorial_line_white: "Puść, gdy nić zrobi się biała.",
+  tutorial_line_solved: "Tak. Nic się nie krzyżuje.",
+  tutorial_aria: "Samouczek. Przeciągnij kryształ w kółku do jasnego punktu, aż nici przestaną się krzyżować.",
+  howto_kicker: "Zasady i tryby",
+  howto_practice: "Ćwicz gest",
+  howto_to_menu: "Do menu",
+  howto_core_title: "Rdzeń",
+  howto_core_detail: "Przeciągaj węzły w okręgu. Ciepła nić = przecięcie, jasna = wolna. 3 s czysto = clear.",
+  howto_core_tag: "Podstawy",
+  howto_campaign_title: "Podróż",
+  howto_campaign_detail: "Poziomy przez pięć krain. Co 6. poziom odsłania konstelację do albumu.",
+  howto_campaign_tag: "Kampania",
+  howto_rush_title: "Błyskawica",
+  howto_rush_detail: "Limit czasu. Każdy clear dodaje czas. Ścigaj najlepszą serię.",
+  howto_rush_tag: "Tryby",
+  howto_master_title: "Mistrz",
+  howto_master_detail: "Własne węzły, limit ruchów, rosnąca trudność.",
+  howto_master_tag: "Tryby",
+  howto_echo_title: "Echo",
+  howto_echo_detail: "Struny ukryte. Dotknij kryształu — sonar na chwilę pokaże układ.",
+  howto_echo_tag: "Tryby",
+  howto_daily_title: "Daily",
+  howto_daily_detail: "Jeden wspólny układ dnia. Seria i kryształy za odbiór.",
+  howto_daily_tag: "Wyzwanie",
+  howto_duel_title: "Pojedynek",
+  howto_duel_detail: "Kanapa (split) albo kod na dwa telefony. Ten sam splątek — kto pierwszy, wygrywa.",
+  howto_duel_tag: "1v1",
 };
 
 const de: Dict = {
@@ -419,6 +791,37 @@ const de: Dict = {
   streak_aria: "Serie {n} Tage",
   duel: "Duell",
   duel_detail: "Couch oder Code",
+  duel_kicker: "Gleiches Layout · wer zuerst, gewinnt",
+  duel_footer: "Ein Handy gegenüber · oder Raumcode online",
+  duel_couch: "Ein Handy",
+  duel_couch_detail: "Split-Screen · gegenübersitzen",
+  duel_couch_tag: "Couch",
+  duel_online: "Zwei Handys",
+  duel_online_detail: "Raumcode · Live-Rennen",
+  duel_online_tag: "Online",
+  duel_online_kicker: "Zwei Handys",
+  duel_online_intro: "Raum erstellen oder Code vom Freund. Kein Konto nötig.",
+  duel_create: "Raum erstellen",
+  duel_join: "Beitreten",
+  duel_code_friend: "Code vom Freund",
+  duel_room_code: "Raumcode",
+  duel_waiting: "Warte auf Rivalen…",
+  duel_connected_host: "Verbunden. Start gleich…",
+  duel_connected_guest: "Verbunden. Warte auf Start…",
+  duel_connecting: "Verbinde…",
+  duel_start: "Start",
+  duel_draw: "Unentschieden",
+  duel_draw_detail: "Fast gleichzeitig — schön.",
+  duel_win: "Du gewinnst",
+  duel_win_detail: "Saubere Saiten zuerst — stark.",
+  duel_rival: "Rivale gewinnt",
+  duel_rival_detail: "Gute Runde. Die nächste kann dir gehören.",
+  duel_again: "Nochmal",
+  duel_end: "Ende",
+  duel_error: "Fehler",
+  duel_error_open: "Raum konnte nicht geöffnet werden.",
+  duel_error_find: "Raum nicht gefunden.",
+  duel_code_needed: "Code vom Freund eingeben.",
   modes: "Modi",
   modes_detail: "Blitz · Echo",
   levels: "Level",
@@ -441,21 +844,28 @@ const de: Dict = {
   duel_settings_detail: "Rennen auf zwei Handys",
   tutorial_again: "Nochmal zeigen",
   reset_progress: "Fortschritt zurücksetzen",
-  reset_detail: "Level, Kristalle, Album und Shop von vorn",
+  reset_detail: "Level & Album von vorn · Premium und Konto bleiben",
   reset_confirm: "Wirklich löschen?",
-  reset_confirm_detail: "Nochmal tippen — Start bei Level 1",
+  reset_confirm_detail: "Nochmal tippen — Start bei 1 · Käufe bleiben",
   back_menu: "Zurück zum Menü",
   modes_kicker: "Spielvarianten",
-  modes_footer: "Eigene Knoten · keine Level-Figuren",
+  modes_footer: "Meister & Echo speichern · Kristalle für jeden Clear",
   mode_rush: "Blitz",
-  mode_rush_detail: "15 s · jeder Clear +4 s · immer dichter",
+  mode_rush_detail: "15 s · jeder Clear +4 s · Kristalle am Ende",
   mode_rush_tag: "Tempo",
+  mode_rush_best: "Bestwert: {n}",
   mode_master: "Meister",
-  mode_master_detail: "Eigene Knoten, immer schwerer · nur Züge im Limit",
+  mode_master_detail: "Eigene Knoten, immer schwerer · nur Züge im Limit · Kristalle",
   mode_master_tag: "Präzision",
+  mode_master_progress: "Schwierigkeit {n} · Best {best}",
+  mode_master_best: "Beste Schwierigkeit: {n}",
   mode_echo: "Echo",
-  mode_echo_detail: "Saiten versteckt · gleiches Gewicht, neues Muster",
+  mode_echo_detail: "Saiten versteckt · gleiches Gewicht, neues Muster · Kristalle",
   mode_echo_tag: "Sinne",
+  mode_echo_progress: "Layout {n} · Best {best}",
+  mode_echo_best: "Beste Serie: {n}",
+  mode_continue: "Weiter",
+  mode_restart: "Von vorn",
   rush_over: "Lauf vorbei",
   rush_again: "Nochmal",
   menu: "Menü",
@@ -465,9 +875,23 @@ const de: Dict = {
   album_preview_hint: "Lege den Umriss auf dem Brett — Kristalle rasten in Lichtmulden ein.",
   album_close: "Schließen",
   level_word: "Level",
-  levels_title: "Level",
-  levels_kicker_empty: "Kampagne 1–60",
-  levels_kicker_progress: "{n} / {total}",
+  levels_title: "Reise",
+  levels_kicker_empty: "Fünf Länder · ein Pfad",
+  levels_kicker_progress: "{n} / {total} geschafft",
+  map_path: "Pfad",
+  map_realm_locked: "Bis Level {n}",
+  map_constellation: "Figur",
+  map_continue: "Weiter",
+  realm_dusk: "Dämmerufer",
+  realm_dusk_detail: "Erste Knoten · sanfte Dämmerung",
+  realm_nebula: "Nebelschleier",
+  realm_nebula_detail: "Dichtere Saiten · violetter Nebel",
+  realm_glacier: "Gletscherpass",
+  realm_glacier_detail: "Kaltes Licht · schärfere Kreuzungen",
+  realm_ember: "Embergrat",
+  realm_ember_detail: "Heiße Spannung · lange Züge",
+  realm_garden: "Gartentor",
+  realm_garden_detail: "Letzte Falten · stille Blüte",
   endless: "Endlos",
   endless_record: "Rekord: Level {n}",
   endless_unlocked: "Nach der Kampagne · ohne Ende",
@@ -514,12 +938,27 @@ const de: Dict = {
   daily_reward: "Daily! +{n} Kristalle",
   daily_streak_reward: "Daily · Serie {n} · +{crystals}",
   album_unlock: "Album: {name} · +{n}",
-  progress_reset: "Fortschritt gelöscht · Level 1",
+  progress_reset: "Fortschritt gelöscht · Level 1 · Premium bleibt",
+  daily_reminder: "Daily-Erinnerung",
+  daily_reminder_on: "An · gegen 10:00",
+  daily_reminder_off: "Aus · tippen zum Einschalten",
+  daily_reminder_denied: "Benachrichtigungen systemseitig blockiert",
+  daily_reminder_unsupported: "Benachrichtigungen hier nicht verfügbar",
+  daily_reminder_prompt: "Morgens an Daily erinnern?",
+  daily_reminder_title: "Daily wartet",
+  daily_reminder_body: "Ein neues Muster ist bereit · Tangle Duel öffnen",
+  account_google: "Google-Konto",
+  account_google_detail: "Fortschritt verknüpfen · Play-bereit",
+  account_google_signin: "Mit Google anmelden",
+  account_google_signout: "Abmelden",
+  account_google_signed: "Angemeldet: {name}",
+  account_google_missing: "NEXT_PUBLIC_GOOGLE_CLIENT_ID setzen für Login",
+  account_google_error: "Anmeldung fehlgeschlagen · erneut versuchen",
   payments_soon: "Zahlungen bald",
   constellation_intro_kicker: "Konstellation",
   constellation_intro_title: "Lege die Sternfigur",
   constellation_intro_body:
-    "Alle paar Level erscheint ein Umriss — Edelstein, Tier oder Pflanze. Ziehe Kristalle in die Lichtmulden, bis die Saiten die Figur bilden. Die erste Entdeckung landet im Album.",
+    "Alle 6 Level erscheint ein Umriss — Tiere, Pflanzen und Gegenstände aus dem Album. Ziehe Kristalle in die Lichtmulden, bis die Saiten die Figur bilden. Die erste Entdeckung landet im Album.",
   constellation_intro_ok: "Verstanden",
   kind_animal: "Tier",
   kind_plant: "Pflanze",
@@ -555,6 +994,37 @@ const es: Dict = {
   streak_aria: "Racha {n} días",
   duel: "Duelo",
   duel_detail: "Sofá o código",
+  duel_kicker: "Mismo diseño · el primero gana",
+  duel_footer: "Un móvil frente a frente · o código de sala online",
+  duel_couch: "Un móvil",
+  duel_couch_detail: "Pantalla partida · uno frente al otro",
+  duel_couch_tag: "Sofá",
+  duel_online: "Dos móviles",
+  duel_online_detail: "Código de sala · carrera en vivo",
+  duel_online_tag: "Online",
+  duel_online_kicker: "Dos móviles",
+  duel_online_intro: "Crea una sala o introduce el código de un amigo. Sin cuenta.",
+  duel_create: "Crear sala",
+  duel_join: "Unirse",
+  duel_code_friend: "Código del amigo",
+  duel_room_code: "Código de sala",
+  duel_waiting: "Esperando rival…",
+  duel_connected_host: "Conectado. Empieza pronto…",
+  duel_connected_guest: "Conectado. Esperando el inicio…",
+  duel_connecting: "Conectando…",
+  duel_start: "Inicio",
+  duel_draw: "Empate",
+  duel_draw_detail: "Casi a la vez — bonito.",
+  duel_win: "Ganas",
+  duel_win_detail: "Cuerdas limpias primero — bien.",
+  duel_rival: "Gana el rival",
+  duel_rival_detail: "Gran ronda. La siguiente puede ser tuya.",
+  duel_again: "Otra vez",
+  duel_end: "Fin",
+  duel_error: "Error",
+  duel_error_open: "No se pudo abrir la sala.",
+  duel_error_find: "Sala no encontrada.",
+  duel_code_needed: "Introduce el código del amigo.",
   modes: "Modos",
   modes_detail: "Rayo · Eco",
   levels: "Niveles",
@@ -577,21 +1047,28 @@ const es: Dict = {
   duel_settings_detail: "Carrera en dos móviles",
   tutorial_again: "Mostrar otra vez",
   reset_progress: "Reiniciar progreso",
-  reset_detail: "Niveles, cristales, álbum y tienda desde cero",
+  reset_detail: "Niveles y álbum desde cero · premium y cuenta se quedan",
   reset_confirm: "¿Borrar de verdad?",
-  reset_confirm_detail: "Toca otra vez — empieza en el nivel 1",
+  reset_confirm_detail: "Toca otra vez — nivel 1 · compras se quedan",
   back_menu: "Volver al menú",
   modes_kicker: "Variantes de juego",
-  modes_footer: "Diseños propios · sin figuras de niveles",
+  modes_footer: "Maestro y Eco guardan el progreso · cristales por cada clear",
   mode_rush: "Rayo",
-  mode_rush_detail: "15 s · cada clear +4 s · cada vez más denso",
+  mode_rush_detail: "15 s · cada clear +4 s · cristales al final",
   mode_rush_tag: "Ritmo",
+  mode_rush_best: "Récord: {n}",
   mode_master: "Maestro",
-  mode_master_detail: "Diseños propios, cada vez más difíciles · límite de movimientos",
+  mode_master_detail: "Diseños propios, cada vez más difíciles · límite de movimientos · cristales",
   mode_master_tag: "Precisión",
+  mode_master_progress: "Dificultad {n} · récord {best}",
+  mode_master_best: "Mejor dificultad: {n}",
   mode_echo: "Eco",
-  mode_echo_detail: "Cuerdas ocultas · mismo peso, diseño nuevo",
+  mode_echo_detail: "Cuerdas ocultas · mismo peso, diseño nuevo · cristales",
   mode_echo_tag: "Sentidos",
+  mode_echo_progress: "Diseño {n} · récord {best}",
+  mode_echo_best: "Mejor racha: {n}",
+  mode_continue: "Continuar",
+  mode_restart: "Desde el inicio",
   rush_over: "Fin de la ronda",
   rush_again: "Otra vez",
   menu: "Menú",
@@ -601,9 +1078,23 @@ const es: Dict = {
   album_preview_hint: "Monta este contorno en el tablero — los cristales encajan en pozos de luz.",
   album_close: "Cerrar",
   level_word: "Nivel",
-  levels_title: "Niveles",
-  levels_kicker_empty: "Campaña 1–60",
-  levels_kicker_progress: "{n} / {total}",
+  levels_title: "Viaje",
+  levels_kicker_empty: "Cinco tierras · un camino",
+  levels_kicker_progress: "{n} / {total} superados",
+  map_path: "Camino",
+  map_realm_locked: "Hasta el nivel {n}",
+  map_constellation: "Figura",
+  map_continue: "Continuar",
+  realm_dusk: "Orilla del Crepúsculo",
+  realm_dusk_detail: "Primeros nudos · crepúsculo suave",
+  realm_nebula: "Velo de Nebulosa",
+  realm_nebula_detail: "Cuerdas densas · niebla violeta",
+  realm_glacier: "Paso del Glaciar",
+  realm_glacier_detail: "Luz fría · cruces más nítidos",
+  realm_ember: "Cresta Ember",
+  realm_ember_detail: "Tensión caliente · tirones largos",
+  realm_garden: "Puerta del Jardín",
+  realm_garden_detail: "Últimos pliegues · flor quieta",
   endless: "Infinito",
   endless_record: "Récord: nivel {n}",
   endless_unlocked: "Tras la campaña · sin fin",
@@ -650,12 +1141,27 @@ const es: Dict = {
   daily_reward: "¡Daily! +{n} cristales",
   daily_streak_reward: "Daily · racha {n} · +{crystals}",
   album_unlock: "Álbum: {name} · +{n}",
-  progress_reset: "Progreso borrado · nivel 1",
+  progress_reset: "Progreso borrado · nivel 1 · premium se queda",
+  daily_reminder: "Recordatorio Daily",
+  daily_reminder_on: "Activo · hacia las 10:00",
+  daily_reminder_off: "Apagado · toca para activar",
+  daily_reminder_denied: "Notificaciones bloqueadas en el sistema",
+  daily_reminder_unsupported: "Notificaciones no disponibles aquí",
+  daily_reminder_prompt: "¿Recordarte el Daily por la mañana?",
+  daily_reminder_title: "Daily te espera",
+  daily_reminder_body: "Hay un nuevo nudo · abre Tangle Duel",
+  account_google: "Cuenta de Google",
+  account_google_detail: "Vincula progreso · listo para Play",
+  account_google_signin: "Entrar con Google",
+  account_google_signout: "Cerrar sesión",
+  account_google_signed: "Sesión: {name}",
+  account_google_missing: "Añade NEXT_PUBLIC_GOOGLE_CLIENT_ID para el login",
+  account_google_error: "No se pudo entrar · inténtalo de nuevo",
   payments_soon: "Pagos pronto",
   constellation_intro_kicker: "Constelación",
   constellation_intro_title: "Monta la figura estelar",
   constellation_intro_body:
-    "Cada pocos niveles aparece un contorno — gema, animal o planta. Lleva los cristales a los pozos de luz hasta que las cuerdas formen la figura. El primer hallazgo va al Álbum.",
+    "Cada 6 niveles aparece un contorno — animales, plantas y objetos del álbum. Lleva los cristales a los pozos de luz hasta que las cuerdas formen la figura. El primer hallazgo va al Álbum.",
   constellation_intro_ok: "Entendido",
   kind_animal: "Animal",
   kind_plant: "Planta",
@@ -691,6 +1197,37 @@ const ru: Dict = {
   streak_aria: "Серия {n} дн.",
   duel: "Дуэль",
   duel_detail: "Диван или код",
+  duel_kicker: "Один узор · кто первый, тот победил",
+  duel_footer: "Один телефон лицом к лицу · или код комнаты онлайн",
+  duel_couch: "Один телефон",
+  duel_couch_detail: "Разделённый экран · напротив друг друга",
+  duel_couch_tag: "Диван",
+  duel_online: "Два телефона",
+  duel_online_detail: "Код комнаты · гонка вживую",
+  duel_online_tag: "Онлайн",
+  duel_online_kicker: "Два телефона",
+  duel_online_intro: "Создайте комнату или введите код друга. Без аккаунта.",
+  duel_create: "Создать комнату",
+  duel_join: "Войти",
+  duel_code_friend: "Код друга",
+  duel_room_code: "Код комнаты",
+  duel_waiting: "Жду соперника…",
+  duel_connected_host: "Связь есть. Скоро старт…",
+  duel_connected_guest: "Связь есть. Жду старт…",
+  duel_connecting: "Подключаюсь…",
+  duel_start: "Старт",
+  duel_draw: "Ничья",
+  duel_draw_detail: "Почти вместе — красиво.",
+  duel_win: "Вы победили",
+  duel_win_detail: "Чистые струны первыми — отлично.",
+  duel_rival: "Победил соперник",
+  duel_rival_detail: "Отличный раунд. Следующий может быть ваш.",
+  duel_again: "Ещё раз",
+  duel_end: "Конец",
+  duel_error: "Ошибка",
+  duel_error_open: "Не удалось открыть комнату.",
+  duel_error_find: "Комната не найдена.",
+  duel_code_needed: "Введите код от друга.",
   modes: "Режимы",
   modes_detail: "Молния · Эхо",
   levels: "Уровни",
@@ -713,21 +1250,28 @@ const ru: Dict = {
   duel_settings_detail: "Гонка на двух телефонах",
   tutorial_again: "Показать снова",
   reset_progress: "Сбросить прогресс",
-  reset_detail: "Уровни, кристаллы, альбом и магазин с нуля",
+  reset_detail: "Уровни и альбом с нуля · премиум и аккаунт остаются",
   reset_confirm: "Точно очистить?",
-  reset_confirm_detail: "Нажмите ещё раз — старт с уровня 1",
+  reset_confirm_detail: "Ещё раз — старт с 1 · покупки остаются",
   back_menu: "В меню",
   modes_kicker: "Варианты игры",
-  modes_footer: "Свои узлы · без фигур из уровней",
+  modes_footer: "Мастер и Эхо сохраняют прогресс · кристаллы за каждый клир",
   mode_rush: "Молния",
-  mode_rush_detail: "15 с · каждый клир +4 с · всё плотнее",
+  mode_rush_detail: "15 с · каждый клир +4 с · кристаллы в конце",
   mode_rush_tag: "Темп",
+  mode_rush_best: "Рекорд: {n}",
   mode_master: "Мастер",
-  mode_master_detail: "Свои узлы, всё сложнее · только ходы в лимите",
+  mode_master_detail: "Свои узлы, всё сложнее · только ходы в лимите · кристаллы",
   mode_master_tag: "Точность",
+  mode_master_progress: "Сложность {n} · рекорд {best}",
+  mode_master_best: "Лучшая сложность: {n}",
   mode_echo: "Эхо",
-  mode_echo_detail: "Струны скрыты · тот же вес, новый узор",
+  mode_echo_detail: "Струны скрыты · тот же вес, новый узор · кристаллы",
   mode_echo_tag: "Чувства",
+  mode_echo_progress: "Узор {n} · рекорд {best}",
+  mode_echo_best: "Лучшая серия: {n}",
+  mode_continue: "Продолжить",
+  mode_restart: "Сначала",
   rush_over: "Забег окончен",
   rush_again: "Ещё раз",
   menu: "Меню",
@@ -737,9 +1281,23 @@ const ru: Dict = {
   album_preview_hint: "Соберите контур на поле — кристаллы входят в световые гнёзда.",
   album_close: "Закрыть",
   level_word: "Уровень",
-  levels_title: "Уровни",
-  levels_kicker_empty: "Кампания 1–60",
-  levels_kicker_progress: "{n} / {total}",
+  levels_title: "Путь",
+  levels_kicker_empty: "Пять земель · одна тропа",
+  levels_kicker_progress: "{n} / {total} пройдено",
+  map_path: "Тропа",
+  map_realm_locked: "До уровня {n}",
+  map_constellation: "Фигура",
+  map_continue: "Продолжить",
+  realm_dusk: "Берег Заката",
+  realm_dusk_detail: "Первые узлы · мягкий сумрак",
+  realm_nebula: "Завеса Туманности",
+  realm_nebula_detail: "Плотнее струны · фиолетовый туман",
+  realm_glacier: "Ледниковый Перевал",
+  realm_glacier_detail: "Холодный свет · острые пересечения",
+  realm_ember: "Хребет Ember",
+  realm_ember_detail: "Горячее натяжение · длинные тяги",
+  realm_garden: "Врата Сада",
+  realm_garden_detail: "Последние складки · тихий расцвет",
   endless: "Бесконечность",
   endless_record: "Рекорд: уровень {n}",
   endless_unlocked: "После кампании · без конца",
@@ -786,12 +1344,27 @@ const ru: Dict = {
   daily_reward: "Daily! +{n} кристаллов",
   daily_streak_reward: "Daily · серия {n} · +{crystals}",
   album_unlock: "Альбом: {name} · +{n}",
-  progress_reset: "Прогресс сброшен · уровень 1",
+  progress_reset: "Прогресс сброшен · уровень 1 · премиум остаётся",
+  daily_reminder: "Напоминание Daily",
+  daily_reminder_on: "Вкл · около 10:00",
+  daily_reminder_off: "Выкл · нажмите, чтобы включить",
+  daily_reminder_denied: "Уведомления заблокированы в системе",
+  daily_reminder_unsupported: "Уведомления здесь недоступны",
+  daily_reminder_prompt: "Напоминать утром о Daily?",
+  daily_reminder_title: "Daily ждёт",
+  daily_reminder_body: "Новый узор готов · откройте Tangle Duel",
+  account_google: "Аккаунт Google",
+  account_google_detail: "Связать прогресс · готово к Play",
+  account_google_signin: "Войти через Google",
+  account_google_signout: "Выйти",
+  account_google_signed: "Вход: {name}",
+  account_google_missing: "Добавьте NEXT_PUBLIC_GOOGLE_CLIENT_ID для входа",
+  account_google_error: "Не удалось войти · попробуйте снова",
   payments_soon: "Оплаты скоро",
   constellation_intro_kicker: "Созвездие",
   constellation_intro_title: "Соберите звёздную фигуру",
   constellation_intro_body:
-    "Каждые несколько уровней появляется контур — камень, зверь или растение. Втяните кристаллы в световые гнёзда, пока струны не сложат фигуру. Первое открытие попадает в Альбом.",
+    "Каждые 6 уровней появляется контур — животные, растения и предметы из альбома. Втяните кристаллы в световые гнёзда, пока струны не сложат фигуру. Первое открытие попадает в Альбом.",
   constellation_intro_ok: "Понятно",
   kind_animal: "Животное",
   kind_plant: "Растение",

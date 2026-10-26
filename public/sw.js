@@ -1,4 +1,4 @@
-const CACHE = "tangle-duel-v8";
+const CACHE = "tangle-duel-v9";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -34,5 +34,37 @@ self.addEventListener("fetch", (event) => {
         if (cached) return cached;
         return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
       }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.focus();
+          if ("navigate" in client) client.navigate(target);
+          return;
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(target);
+    }),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || data.type !== "SHOW_DAILY_REMINDER") return;
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Tangle Duel", {
+      body: data.body || "",
+      tag: "tangle-daily",
+      renotify: true,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: "/" },
+    }),
   );
 });
