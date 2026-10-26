@@ -269,6 +269,26 @@ export function getTheme(id: string | null | undefined): VisualTheme {
   return byId.get(id as ThemeId) ?? THEMES[0]!;
 }
 
+/** Zmienne CSS dla UI — jeden wariant barw z aktywnego motywu. */
+export function themeChromeVars(theme: VisualTheme): Record<string, string> {
+  return {
+    "--ui-ink": theme.ink,
+    "--ui-ice": theme.ice,
+    "--ui-warm": theme.warm,
+    "--ui-spark": theme.spark,
+    "--ui-play-a": theme.crystalCool[0],
+    "--ui-play-b": theme.crystalCool[1],
+    "--ui-play-c": theme.crystalCool[2],
+    "--ui-glow": `rgba(${theme.moteCool}, 0.28)`,
+    "--ui-glow-strong": `rgba(${theme.moteCool}, 0.42)`,
+    "--ui-warm-soft": `${theme.warm}33`,
+    "--ui-warm-mid": `${theme.warm}55`,
+    "--ui-ice-soft": `${theme.ice}24`,
+    "--ui-ice-mid": `${theme.ice}40`,
+    "--ui-ice-faint": `${theme.ice}73`,
+  };
+}
+
 export function themeUnlockRequirement(theme: VisualTheme): string {
   if (theme.unlockAt <= 0 && theme.unlockEndless <= 0) return "Od startu";
   if (theme.unlockEndless > 0) return `Nieskończone ${theme.unlockEndless}`;

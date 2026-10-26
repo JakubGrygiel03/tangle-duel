@@ -74,3 +74,24 @@ export const TRAIL_PRICE = 200;
 export function soundPackById(id: string | null | undefined): SoundPack {
   return SOUND_PACKS.find((pack) => pack.id === id) ?? SOUND_PACKS[0]!;
 }
+
+export type CrystalShapeId = "diamond" | "hex" | "star" | "rune" | "ring";
+
+export type CrystalShape = {
+  id: CrystalShapeId;
+  name: string;
+  detail: string;
+  price: number;
+};
+
+export const CRYSTAL_SHAPES: readonly CrystalShape[] = [
+  { id: "diamond", name: "Diament", detail: "Klasyczny kwadrat", price: 0 },
+  { id: "hex", name: "Heksagon", detail: "Sześciokątna fasetka", price: 250 },
+  { id: "star", name: "Gwiazda", detail: "Ostrze konstelacji", price: 300 },
+  { id: "rune", name: "Runa", detail: "Mały znak magiczny", price: 300 },
+  { id: "ring", name: "Pierścień", detail: "Pulsujący obręcz", price: 350 },
+];
+
+export function crystalShapeById(id: string | null | undefined): CrystalShape {
+  return CRYSTAL_SHAPES.find((shape) => shape.id === id) ?? CRYSTAL_SHAPES[0]!;
+}

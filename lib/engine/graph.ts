@@ -1,4 +1,7 @@
-import { constellationForLevel } from "./constellations";
+import {
+  constellationForLevel,
+  type ConstellationId,
+} from "./constellations";
 import { findIntersections, segmentIntersection } from "./intersections";
 
 export type Point = {
@@ -44,6 +47,7 @@ export type Graph = {
   outline?: Point[];
   /** Nazwa konstelacji do flasha po rozplątaniu. */
   constellationName?: string;
+  constellationId?: ConstellationId;
   isConstellation?: boolean;
 };
 
@@ -53,6 +57,7 @@ export type LevelPlan = {
   edges: GraphEdge[];
   crossings: number;
   constellationName?: string;
+  constellationId?: ConstellationId;
   isConstellation?: boolean;
 };
 
@@ -530,6 +535,24 @@ function crosses(points: readonly Point[], edges: readonly GraphEdge[]): boolean
   return findIntersections(nodesFrom(points), edges).length > 0;
 }
 
+function scrambleOnCircle(
+  count: number,
+  edges: readonly GraphEdge[],
+  rnd: () => number,
+): { points: Point[]; crossings: number } {
+  const order = Array.from({ length: count }, (_, index) => index);
+  shuffleIds(order, rnd);
+  const onRing = order.map((_, slot) => {
+    const angle = -Math.PI / 2 + (slot / count) * Math.PI * 2 + (rnd() - 0.5) * 0.08;
+    return { x: Math.cos(angle) * 0.92, y: Math.sin(angle) * 0.92 };
+  });
+  const placed: Point[] = Array.from({ length: count }, () => ({ x: 0, y: 0 }));
+  order.forEach((id, slot) => {
+    placed[id] = onRing[slot]!;
+  });
+  return { points: placed, crossings: crossingCount(placed, edges) };
+}
+
 export function planLevel(level: number, seed: number): LevelPlan | null {
   const figure = constellationForLevel(level);
   if (figure) {
@@ -537,15 +560,25 @@ export function planLevel(level: number, seed: number): LevelPlan | null {
     const solved = figure.solved.map((point) => ({ x: point.x, y: point.y }));
     const edges = figure.edges.map((edge) => ({ a: edge.a, b: edge.b }));
     if (crosses(solved, edges)) return null;
-    const minCross = Math.max(1, Math.min(4, Math.floor(solved.length / 2)));
-    const tangled = tanglePoints(solved, edges, 0, minCross, rnd);
-    if (!tangled) return null;
+    const minCross = Math.max(2, Math.min(5, Math.floor(solved.length / 2)));
+    let tangled = tanglePoints(solved, edges, 0, minCross, rnd);
+    if (!tangled || tangled.crossings < 1) {
+      const fallback = scrambleOnCircle(solved.length, edges, rnd);
+      if (fallback.crossings < 1) {
+        // Wymuś krzyż: zamiana dwóch sąsiadów na okręgu.
+        const again = scrambleOnCircle(solved.length, edges, rnd);
+        tangled = { points: again.points, crossings: Math.max(1, again.crossings) };
+      } else {
+        tangled = fallback;
+      }
+    }
     return {
       solved,
       tangled: tangled.points,
       edges,
       crossings: tangled.crossings,
       constellationName: figure.reveal,
+      constellationId: figure.id,
       isConstellation: true,
     };
   }
@@ -722,6 +755,7 @@ function graphFromPlan(level: number, plan: LevelPlan, arena: Arena): Graph {
     minimumMoves: movesToUntangle(plan.solved, plan.tangled, plan.edges),
     outline,
     constellationName: plan.constellationName,
+    constellationId: plan.constellationId,
     isConstellation: plan.isConstellation === true,
   };
 }
@@ -733,15 +767,22 @@ export function createLevel(
   chrome?: ArenaChrome,
 ): Graph {
   const arena = computeArena(width, height, chrome);
+  const figure = constellationForLevel(level);
   const spec = specsForLevel(level);
   let best: LevelPlan | null = null;
 
-  for (let attempt = 0; attempt < 32; attempt++) {
+  for (let attempt = 0; attempt < 48; attempt++) {
     const seed = Math.imul(Math.max(1, level), 10007) + attempt * 7919 + 42;
     const plan = planLevel(level, seed);
     if (!plan) continue;
     if (!best || plan.crossings > best.crossings) best = plan;
-    if (plan.crossings >= spec.minCrossings) break;
+    const need = figure ? Math.max(2, Math.min(4, Math.floor(plan.solved.length / 2))) : spec.minCrossings;
+    if (plan.crossings >= need) break;
+  }
+
+  if (!best && figure) {
+    // Ostatnia deska: figura + okrągłe splątanie.
+    best = planLevel(level, Math.imul(level, 99991) + 7);
   }
 
   return graphFromPlan(level, best ?? fallbackPlan(), arena);

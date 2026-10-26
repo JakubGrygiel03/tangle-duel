@@ -1,8 +1,10 @@
 import {
   constellationBonus,
+  crystalShapeById,
   crystalsForLevel,
   PERFECT_MOVE_BONUS,
   soundPackById,
+  type CrystalShapeId,
   type SoundPackId,
 } from "@/lib/engine/economy";
 import {
@@ -17,6 +19,8 @@ export type GameSave = {
   muted: boolean;
   haptics: boolean;
   tutorialSeen: boolean;
+  /** Pierwsze wyjaśnienie mechaniki konstelacji (poziom 5). */
+  constellationIntroSeen: boolean;
   /** Bieżący poziom (kampania 1–60 albo nieskończone 61+). */
   level: number;
   /** Zaliczone poziomy kampanii. */
@@ -32,6 +36,8 @@ export type GameSave = {
   lastAdAt: number;
   /** Dzień (YYYY-MM-DD), za który odebrano nagrodę Daily. */
   dailyClaimedOn: string;
+  /** Seria kolejnych dni z zaliczonym Daily. */
+  dailyStreak: number;
   /** Odkryte konstelacje (album). */
   constellations: ConstellationId[];
   /** Aktywny pakiet brzmienia. */
@@ -41,6 +47,9 @@ export type GameSave = {
   /** Ślad światła za palcem. */
   trailOwned: boolean;
   trailEnabled: boolean;
+  /** Kształt węzłów na planszy. */
+  crystalShape: CrystalShapeId;
+  purchasedShapes: CrystalShapeId[];
 };
 
 const KEY = "tangle-duel-save";
@@ -49,6 +58,7 @@ export const defaultSave = (): GameSave => ({
   muted: false,
   haptics: true,
   tutorialSeen: false,
+  constellationIntroSeen: false,
   level: 1,
   clearedCampaign: [],
   endlessBest: 0,
@@ -57,11 +67,14 @@ export const defaultSave = (): GameSave => ({
   purchasedThemes: [],
   lastAdAt: 0,
   dailyClaimedOn: "",
+  dailyStreak: 0,
   constellations: [],
   soundPack: "harp",
   purchasedSounds: [],
   trailOwned: false,
   trailEnabled: false,
+  crystalShape: "diamond",
+  purchasedShapes: [],
 });
 
 function sanitizeCampaign(levels: unknown): number[] {
@@ -94,12 +107,48 @@ function sanitizeConstellations(ids: unknown): ConstellationId[] {
   return [...unique];
 }
 
+/**
+ * Album z postępu: konstelacja pojawia się po zaliczeniu jej poziomu
+ * (albo gdy gracz już jest dalej — naprawia stare save'y bez wpisu w albumie).
+ */
+export function mergeAlbumFromCleared(
+  clearedCampaign: readonly number[],
+  owned: readonly ConstellationId[],
+  progressLevel = 0,
+  endlessBest = 0,
+): ConstellationId[] {
+  const next = new Set(owned);
+  const peakCleared = clearedCampaign.length > 0 ? Math.max(...clearedCampaign) : 0;
+  const reached = Math.max(
+    peakCleared,
+    Math.max(0, Math.floor(progressLevel) - 1),
+    endlessBest > 0 ? CAMPAIGN_LEVELS : 0,
+  );
+  for (const figure of CONSTELLATIONS) {
+    if (clearedCampaign.includes(figure.level) || reached >= figure.level) {
+      next.add(figure.id);
+    }
+  }
+  return CONSTELLATIONS.map((item) => item.id).filter((id) => next.has(id));
+}
+
 function sanitizeSounds(ids: unknown): SoundPackId[] {
   if (!Array.isArray(ids)) return [];
   const unique = new Set<SoundPackId>();
   for (const id of ids) {
     if (typeof id === "string" && soundPackById(id).id === id && id !== "harp") {
       unique.add(id as SoundPackId);
+    }
+  }
+  return [...unique];
+}
+
+function sanitizeShapes(ids: unknown): CrystalShapeId[] {
+  if (!Array.isArray(ids)) return [];
+  const unique = new Set<CrystalShapeId>();
+  for (const id of ids) {
+    if (typeof id === "string" && crystalShapeById(id).id === id && id !== "diamond") {
+      unique.add(id as CrystalShapeId);
     }
   }
   return [...unique];
@@ -130,8 +179,15 @@ export function loadSave(): GameSave {
         ? Math.max(0, Math.floor(parsed.endlessBest))
         : 0;
     const purchasedThemes = sanitizePurchased(parsed.purchasedThemes);
-    const constellations = sanitizeConstellations(parsed.constellations);
+    const progressLevel = sanitizeLevel(parsed.level, clearedCampaign, endlessBest);
+    const constellations = mergeAlbumFromCleared(
+      clearedCampaign,
+      sanitizeConstellations(parsed.constellations),
+      progressLevel,
+      endlessBest,
+    );
     const purchasedSounds = sanitizeSounds(parsed.purchasedSounds);
+    const purchasedShapes = sanitizeShapes(parsed.purchasedShapes);
     const unlocked = computeUnlockedThemes(clearedCampaign, endlessBest, purchasedThemes);
     const themeId = getTheme(
       typeof parsed.themeId === "string" && unlocked.includes(parsed.themeId as ThemeId)
@@ -148,6 +204,10 @@ export function loadSave(): GameSave {
         : 0;
     const dailyClaimedOn =
       typeof parsed.dailyClaimedOn === "string" ? parsed.dailyClaimedOn.slice(0, 10) : "";
+    const dailyStreak =
+      typeof parsed.dailyStreak === "number" && Number.isFinite(parsed.dailyStreak)
+        ? Math.max(0, Math.floor(parsed.dailyStreak))
+        : 0;
     const soundPack = soundPackById(
       typeof parsed.soundPack === "string" ? parsed.soundPack : "harp",
     ).id;
@@ -155,12 +215,20 @@ export function loadSave(): GameSave {
       soundPack === "harp" || purchasedSounds.includes(soundPack) ? soundPack : "harp";
     const trailOwned = parsed.trailOwned === true;
     const trailEnabled = trailOwned && parsed.trailEnabled !== false;
+    const crystalShape = crystalShapeById(
+      typeof parsed.crystalShape === "string" ? parsed.crystalShape : "diamond",
+    ).id;
+    const ownedShape =
+      crystalShape === "diamond" || purchasedShapes.includes(crystalShape)
+        ? crystalShape
+        : "diamond";
 
     return {
       muted: parsed.muted === true,
       haptics: parsed.haptics !== false,
       tutorialSeen: parsed.tutorialSeen === true,
-      level: sanitizeLevel(parsed.level, clearedCampaign, endlessBest),
+      constellationIntroSeen: parsed.constellationIntroSeen === true,
+      level: progressLevel,
       clearedCampaign,
       endlessBest,
       themeId,
@@ -168,11 +236,14 @@ export function loadSave(): GameSave {
       purchasedThemes,
       lastAdAt,
       dailyClaimedOn,
+      dailyStreak,
       constellations,
       soundPack: ownedSound,
       purchasedSounds,
       trailOwned,
       trailEnabled,
+      crystalShape: ownedShape,
+      purchasedShapes,
     };
   } catch {
     return defaultSave();
@@ -262,35 +333,55 @@ export type ClearReward = {
 export function recordClearedLevel(
   current: GameSave,
   level: number,
-  opts?: { perfect?: boolean },
+  opts?: { perfect?: boolean; constellationId?: ConstellationId },
 ): { save: GameSave; reward: ClearReward } {
   const perfectBonus = opts?.perfect ? PERFECT_MOVE_BONUS : 0;
-  const figure = constellationForLevel(level);
+  const figure =
+    (opts?.constellationId
+      ? (CONSTELLATIONS.find((item) => item.id === opts.constellationId) ?? null)
+      : null) ?? constellationForLevel(level);
 
   if (level >= 1 && level <= CAMPAIGN_LEVELS) {
-    if (current.clearedCampaign.includes(level)) {
+    const already = current.clearedCampaign.includes(level);
+    const albumWasMissing = Boolean(figure && !current.constellations.includes(figure.id));
+    const nextCleared = already
+      ? current.clearedCampaign
+      : [...current.clearedCampaign, level].sort((a, b) => a - b);
+    const constellations = mergeAlbumFromCleared(
+      nextCleared,
+      current.constellations,
+      Math.max(current.level, level + 1),
+      current.endlessBest,
+    );
+    const unlockedNow =
+      albumWasMissing && figure && constellations.includes(figure.id) ? figure.id : null;
+
+    if (already) {
+      if (!albumWasMissing) {
+        return {
+          save: current,
+          reward: { crystals: 0, constellation: null, alreadyCleared: true },
+        };
+      }
       return {
-        save: current,
-        reward: { crystals: 0, constellation: null, alreadyCleared: true },
+        save: { ...current, constellations },
+        reward: { crystals: 0, constellation: unlockedNow, alreadyCleared: true },
       };
     }
+
     const base = crystalsForLevel(level);
     const bonus = constellationBonus(level);
     const crystals = base + bonus + perfectBonus;
-    const constellations =
-      figure && !current.constellations.includes(figure.id)
-        ? [...current.constellations, figure.id]
-        : current.constellations;
     return {
       save: {
         ...current,
-        clearedCampaign: [...current.clearedCampaign, level].sort((a, b) => a - b),
+        clearedCampaign: nextCleared,
         crystals: current.crystals + crystals,
         constellations,
       },
       reward: {
         crystals,
-        constellation: figure && !current.constellations.includes(figure.id) ? figure.id : null,
+        constellation: unlockedNow,
         alreadyCleared: false,
       },
     };

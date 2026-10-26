@@ -15,7 +15,7 @@ import {
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
-import { getTheme, type VisualTheme } from "@/lib/engine/themes";
+import { getTheme, themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 
 const GUIDE = 3;
@@ -393,8 +393,8 @@ export function TutorialBoard({
 
   return (
     <div
-      className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
-      style={{ background: activeTheme.ink }}
+      className="theme-chrome game-shell fixed inset-0 flex items-center justify-center"
+      style={{ background: activeTheme.ink, ...themeChromeVars(activeTheme) }}
     >
       <div className="play-bleed">
         <ThemeBackdrop theme={activeTheme} />
@@ -411,13 +411,11 @@ export function TutorialBoard({
             ref={headerRef}
             className="flex items-center justify-between gap-3 px-5 pt-[max(0.85rem,env(safe-area-inset-top))]"
           >
-            <h1 className="text-4xl font-light leading-none tracking-[-0.03em] text-[#e0f2fe]">
-              Samouczek
-            </h1>
+            <h1 className="text-4xl font-light leading-none tracking-[-0.03em]">Samouczek</h1>
             <button
               type="button"
               onClick={onSkip}
-              className="pointer-events-auto h-11 shrink-0 px-2 text-sm text-[#e0f2fe]/75"
+              className="ui-muted pointer-events-auto h-11 shrink-0 px-2 text-sm"
             >
               Pomiń
             </button>
@@ -429,7 +427,7 @@ export function TutorialBoard({
               role="status"
               aria-live="polite"
               aria-label={String(countdown)}
-              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
+              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em]"
               style={{ left: countAt.x, top: countAt.y }}
             >
               {countdown}
@@ -437,16 +435,16 @@ export function TutorialBoard({
           )}
 
           <div ref={cardRef} className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))]">
-            <div className="rounded-[1.4rem] border border-[#e0f2fe]/15 bg-[#09090b]/72 px-5 py-4 backdrop-blur-md">
+            <div className="ui-panel rounded-[1.4rem] border bg-black/70 px-5 py-4 backdrop-blur-md">
               <p className="text-lg font-light leading-snug">{line}</p>
-              <p className="mt-2 text-[13px] leading-relaxed text-[#e0f2fe]/55">
-                Pomarańczowa nić się krzyżuje. Biała jest wolna.
+              <p className="ui-muted mt-2 text-[13px] leading-relaxed">
+                Ciepła nić się krzyżuje. Jasna jest wolna.
               </p>
               {solved && (
                 <button
                   type="button"
                   onClick={onFinish}
-                  className="pointer-events-auto mt-4 h-14 w-full rounded-[1.1rem] bg-[linear-gradient(180deg,#f8fbff_0%,#d5eaf6_100%)] text-base font-medium text-[#0b1020]"
+                  className="play-seal pointer-events-auto mt-4 h-14 w-full rounded-[1.1rem] text-base font-medium"
                 >
                   {firstVisit ? "Dalej" : "Wracam"}
                 </button>

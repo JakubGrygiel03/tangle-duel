@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import { HarpSynth } from "@/lib/audio/synth";
-import type { SoundPackId } from "@/lib/engine/economy";
+import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
+import {
+  isConstellationMatched,
+  magnetTowardOutline,
+  settleNodesTowardOutline,
+  snapToOutlineIfClose,
+} from "@/lib/engine/constellations";
 import {
   CAMPAIGN_LEVELS,
   createLevel,
@@ -18,7 +24,7 @@ import {
 } from "@/lib/engine/graph";
 import { findIntersections } from "@/lib/engine/intersections";
 import { BoardRenderer } from "@/lib/engine/renderer";
-import { getTheme, type VisualTheme } from "@/lib/engine/themes";
+import { getTheme, themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 
 /** Czysty układ musi tyle wytrzymać, zanim poziom się zaliczy. */
 const HOLD_MS = 3000;
@@ -38,6 +44,7 @@ export type ClearInfo = {
   minimumMoves: number;
   perfect: boolean;
   constellationName?: string;
+  constellationId?: string;
 };
 
 type TrailMote = { x: number; y: number; life: number };
@@ -48,6 +55,7 @@ type GameBoardProps = {
   haptics: boolean;
   theme?: VisualTheme;
   soundPack?: SoundPackId;
+  crystalShape?: CrystalShapeId;
   trail?: boolean;
   mode?: BoardMode;
   /** Wspólny seed pojedynku — ten sam układ na obu urządzeniach. */
@@ -69,6 +77,9 @@ type GameBoardProps = {
   onAdvance: (level: number) => void;
   /** Koniec biegu Rush (czas się skończył). */
   onRushOver?: (score: number) => void;
+  /** Pierwsze spotkanie z konstelacją — kartka wyjaśniająca. */
+  constellationIntro?: boolean;
+  onConstellationIntroSeen?: () => void;
 };
 
 export function GameBoard({
@@ -77,6 +88,7 @@ export function GameBoard({
   haptics,
   theme,
   soundPack = "harp",
+  crystalShape = "diamond",
   trail = false,
   mode = "classic",
   seed,
@@ -91,6 +103,8 @@ export function GameBoard({
   onCleared,
   onAdvance,
   onRushOver,
+  constellationIntro = false,
+  onConstellationIntroSeen,
 }: GameBoardProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -119,11 +133,22 @@ export function GameBoard({
   const themeRef = useRef(theme ?? getTheme("dusk"));
   const seedRef = useRef(seed);
   const soundRef = useRef(soundPack);
+  const shapeRef = useRef(crystalShape);
   const invertedRef = useRef(inverted);
   const [hintVisible, setHintVisible] = useState(true);
   const [countdown, setCountdown] = useState<3 | 2 | 1 | null>(null);
   const [countAt, setCountAt] = useState<{ x: number; y: number } | null>(null);
   const [canvasError, setCanvasError] = useState(false);
+  const [introOpen, setIntroOpen] = useState(constellationIntro);
+  const introRef = useRef(constellationIntro);
+
+  useEffect(() => {
+    introRef.current = introOpen;
+  }, [introOpen]);
+
+  useEffect(() => {
+    if (constellationIntro) setIntroOpen(true);
+  }, [constellationIntro]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -216,6 +241,8 @@ export function GameBoard({
     const readChrome = (): ArenaChrome | undefined => {
       // Obrót CSS psuje getBoundingClientRect względem layoutu — stałe pasy.
       if (embed || invertedRef.current || compact) {
+        // Couch: maksymalnie duża arena w połowie ekranu.
+        if (compact && hideChrome) return { top: 36, bottom: 8 };
         return { top: compact ? 52 : 64, bottom: hideChrome ? 12 : 56 };
       }
       const hud = hudRef.current;
@@ -247,6 +274,7 @@ export function GameBoard({
         width,
         height,
         theme: themeRef.current,
+        crystalShape: shapeRef.current,
         echoReveal,
         trail: callbacks.current.trail ? trailMotes : undefined,
       });
@@ -344,9 +372,25 @@ export function GameBoard({
 
         if (graph) {
           stepNodes(graph.nodes, dt, celebrating ? null : dragging);
-          const hits = findIntersections(graph.nodes, graph.edges);
+          let hits = findIntersections(graph.nodes, graph.edges);
+          // Po rozplątaniu dociągnij do zarysu — inaczej 0 przecięć bez odliczania.
+          if (
+            graph.isConstellation &&
+            graph.outline &&
+            hits.length === 0 &&
+            !celebrating &&
+            dragging === null
+          ) {
+            settleNodesTowardOutline(graph.nodes, graph.outline, graph.arena.radius);
+            hits = findIntersections(graph.nodes, graph.edges);
+          }
           const introPlaying = now < introUntil;
-          const solved = hits.length === 0 && !isDegenerate(graph.nodes);
+          const shapeReady =
+            !graph.isConstellation ||
+            !graph.outline ||
+            isConstellationMatched(graph.nodes, graph.outline, graph.arena.radius);
+          const solved =
+            hits.length === 0 && !isDegenerate(graph.nodes) && shapeReady;
           const masterFail =
             callbacks.current.mode === "master" &&
             !celebrating &&
@@ -383,6 +427,7 @@ export function GameBoard({
                   minimumMoves: graph.minimumMoves,
                   perfect,
                   constellationName: name,
+                  constellationId: graph.constellationId,
                 });
                 try {
                   if (name) synth.constellationChord();
@@ -452,6 +497,7 @@ export function GameBoard({
     const onPointerDown = (event: PointerEvent) => {
       if (event.cancelable) event.preventDefault();
       synth.unlock();
+      if (introRef.current) return;
       if (!graph || celebrating || pointerId !== null || rushEnded) return;
 
       const point = pointFrom(event);
@@ -467,7 +513,16 @@ export function GameBoard({
       moves += 1;
       setMoveCount(moves);
       if (callbacks.current.mode === "echo") echoUntil = performance.now() + ECHO_REVEAL_MS;
-      const target = placeDragTarget(graph.nodes, id, point.x, point.y, graph.arena);
+      let target = placeDragTarget(graph.nodes, id, point.x, point.y, graph.arena);
+      if (graph.outline) {
+        target = magnetTowardOutline(
+          target.x,
+          target.y,
+          graph.outline,
+          graph.arena.radius,
+          id,
+        );
+      }
       node.tx = target.x;
       node.ty = target.y;
       if (callbacks.current.haptics) navigator.vibrate?.(12);
@@ -488,7 +543,16 @@ export function GameBoard({
       const node = graph.nodes[dragging];
       if (!node) return;
       const point = pointFrom(event);
-      const target = placeDragTarget(graph.nodes, node.id, point.x, point.y, graph.arena);
+      let target = placeDragTarget(graph.nodes, node.id, point.x, point.y, graph.arena);
+      if (graph.outline) {
+        target = magnetTowardOutline(
+          target.x,
+          target.y,
+          graph.outline,
+          graph.arena.radius,
+          node.id,
+        );
+      }
       node.tx = target.x;
       node.ty = target.y;
       if (callbacks.current.trail && trailMotes.length < 48) {
@@ -498,6 +562,26 @@ export function GameBoard({
 
     const onPointerUp = (event: PointerEvent) => {
       if (pointerId === null || event.pointerId !== pointerId) return;
+      if (graph && dragging !== null && graph.outline) {
+        const node = graph.nodes[dragging];
+        if (node) {
+          const target = snapToOutlineIfClose(
+            node.tx,
+            node.ty,
+            graph.outline,
+            graph.arena.radius,
+            node.id,
+          );
+          node.tx = target.x;
+          node.ty = target.y;
+          if (
+            callbacks.current.haptics &&
+            Math.hypot(target.x - node.x, target.y - node.y) > 2
+          ) {
+            navigator.vibrate?.(8);
+          }
+        }
+      }
       pointerId = null;
       dragging = null;
     };
@@ -554,6 +638,7 @@ export function GameBoard({
     themeRef.current = theme ?? getTheme("dusk");
     seedRef.current = seed;
     soundRef.current = soundPack;
+    shapeRef.current = crystalShape;
     invertedRef.current = inverted;
     synthRef.current?.setMuted(muted);
     synthRef.current?.setPack(soundPack);
@@ -569,6 +654,7 @@ export function GameBoard({
     theme,
     seed,
     soundPack,
+    crystalShape,
     inverted,
   ]);
 
@@ -588,14 +674,17 @@ export function GameBoard({
           : "Tangle Duel");
 
   const shellClass = embed
-    ? "game-shell relative h-full w-full overflow-hidden text-[#e0f2fe]"
-    : "game-shell fixed inset-0 flex items-center justify-center overflow-hidden text-[#e0f2fe]";
+    ? "theme-chrome game-shell relative h-full w-full overflow-hidden"
+    : "theme-chrome game-shell fixed inset-0 flex items-center justify-center overflow-hidden";
   const columnClass = embed
     ? "relative z-10 h-full w-full overflow-hidden"
     : "play-column z-10";
 
   return (
-    <div className={shellClass} style={{ background: activeTheme.ink }}>
+    <div
+      className={shellClass}
+      style={{ background: activeTheme.ink, ...themeChromeVars(activeTheme) }}
+    >
       {!embed && (
         <div className="play-bleed">
           <ThemeBackdrop theme={activeTheme} />
@@ -620,7 +709,7 @@ export function GameBoard({
               type="button"
               onClick={onMenu}
               aria-label="Wróć do menu"
-              className="pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md"
+              className="ui-chip pointer-events-auto absolute left-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border bg-black/35 backdrop-blur-md"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
                 <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
@@ -648,85 +737,151 @@ export function GameBoard({
           <header
             ref={hudRef}
             className={
-              compact
-                ? "px-3 pt-2"
-                : "px-4 pt-[max(0.85rem,env(safe-area-inset-top))]"
+              compact && hideChrome
+                ? "px-3 pt-1.5"
+                : compact
+                  ? "px-3 pt-2"
+                  : "px-4 pt-[max(0.85rem,env(safe-area-inset-top))]"
             }
           >
-            <p className="text-center text-[10px] font-medium uppercase tracking-[0.42em] text-[#e0f2fe]/45">
-              {title}
-            </p>
-            <div className={`mt-2 grid grid-cols-3 gap-2 ${compact ? "mt-1.5" : "mt-3"}`}>
-              {mode === "rush" ? (
-                <>
-                  <HudStat
-                    label="Czas"
-                    value={`${Math.max(0, Math.ceil(rushMs / 1000))}s`}
-                    tone={rushUrgent ? "amber" : "ice"}
-                    compact={compact}
-                  />
-                  <HudStat label="Seria" value={rushScore} align="center" compact={compact} />
-                  <HudStat
-                    label="Przecięcia"
-                    value={crossings === null ? "—" : crossings}
-                    tone={calm ? "ice" : "amber"}
-                    align="end"
-                    compact={compact}
-                  />
-                </>
-              ) : mode === "master" ? (
-                <>
-                  <HudStat label="Ruchy" value={moveCount} compact={compact} />
-                  <HudStat
-                    label="Par"
-                    value={minMoves === null ? "—" : minMoves}
-                    tone={moveCount > (minMoves ?? 99) ? "amber" : "ice"}
-                    align="center"
-                    compact={compact}
-                  />
-                  <HudStat
-                    label="Przecięcia"
-                    value={crossings === null ? "—" : crossings}
-                    tone={calm ? "ice" : "amber"}
-                    align="end"
-                    compact={compact}
-                  />
-                </>
-              ) : (
-                <>
-                  <HudStat label="Poziom" value={levelLabel} compact={compact} />
-                  <HudStat
-                    label="Przecięcia"
-                    value={crossings === null ? "—" : crossings}
-                    tone={calm ? "ice" : "amber"}
-                    align="center"
-                    compact={compact}
-                  />
-                  <HudStat
-                    label="Min. ruchy"
-                    value={minMoves === null ? "—" : minMoves}
-                    align="end"
-                    compact={compact}
-                  />
-                </>
-              )}
-            </div>
+            {compact && hideChrome ? (
+              <div className="flex items-end justify-between gap-2">
+                <p className="ui-kicker text-[10px] font-medium uppercase tracking-[0.28em]">
+                  {title}
+                </p>
+                <p
+                  className={`text-2xl font-light tabular-nums leading-none ${
+                    calm ? "" : "ui-accent"
+                  }`}
+                >
+                  {crossings === null ? "—" : crossings}
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="ui-kicker text-center text-[10px] font-medium uppercase tracking-[0.42em]">
+                  {title}
+                </p>
+                <div className={`mt-2 grid grid-cols-3 gap-2 ${compact ? "mt-1.5" : "mt-3"}`}>
+                  {mode === "rush" ? (
+                    <>
+                      <HudStat
+                        label="Czas"
+                        value={`${Math.max(0, Math.ceil(rushMs / 1000))}s`}
+                        tone={rushUrgent ? "amber" : "ice"}
+                        compact={compact}
+                      />
+                      <HudStat label="Seria" value={rushScore} align="center" compact={compact} />
+                      <HudStat
+                        label="Przecięcia"
+                        value={crossings === null ? "—" : crossings}
+                        tone={calm ? "ice" : "amber"}
+                        align="end"
+                        compact={compact}
+                      />
+                    </>
+                  ) : mode === "master" ? (
+                    <>
+                      <HudStat label="Ruchy" value={moveCount} compact={compact} />
+                      <HudStat
+                        label="Par"
+                        value={minMoves === null ? "—" : minMoves}
+                        tone={moveCount > (minMoves ?? 99) ? "amber" : "ice"}
+                        align="center"
+                        compact={compact}
+                      />
+                      <HudStat
+                        label="Przecięcia"
+                        value={crossings === null ? "—" : crossings}
+                        tone={calm ? "ice" : "amber"}
+                        align="end"
+                        compact={compact}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <HudStat label="Poziom" value={levelLabel} compact={compact} />
+                      <HudStat
+                        label="Przecięcia"
+                        value={crossings === null ? "—" : crossings}
+                        tone={calm ? "ice" : "amber"}
+                        align="center"
+                        compact={compact}
+                      />
+                      <HudStat
+                        label="Min. ruchy"
+                        value={minMoves === null ? "—" : minMoves}
+                        align="end"
+                        compact={compact}
+                      />
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </header>
 
-          {hintVisible && countdown === null && !canvasError && !compact && mode === "echo" && (
-            <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
+          {hintVisible &&
+            !introOpen &&
+            countdown === null &&
+            !canvasError &&
+            !compact &&
+            mode === "echo" && (
+            <p className="ui-muted hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed">
               Dotknij kryształu — sonar na chwilę
               <br />
               pokaże struny i przecięcia.
             </p>
           )}
 
-          {hintVisible && countdown === null && !canvasError && !compact && mode !== "echo" && (
-            <p className="hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed text-[#e0f2fe]/75">
-              Przeciągnij kryształy wewnątrz okręgu,
-              <br />
-              aż struny przestaną się przecinać.
+          {hintVisible &&
+            !introOpen &&
+            countdown === null &&
+            !canvasError &&
+            !compact &&
+            mode !== "echo" && (
+            <p className="ui-muted hint-in absolute inset-x-8 bottom-[max(5.75rem,calc(env(safe-area-inset-bottom)+4.75rem))] text-center text-sm font-light leading-relaxed">
+              {revealName || level % 5 === 0
+                ? (
+                  <>
+                    Magnes wciąga do świetlnych gniazd —
+                    <br />
+                    złóż figurę zarysu, bez przecięć.
+                  </>
+                ) : (
+                  <>
+                    Przeciągnij kryształy wewnątrz okręgu,
+                    <br />
+                    aż struny przestaną się przecinać.
+                  </>
+                )}
             </p>
+          )}
+
+          {introOpen && !compact && !hideChrome && (
+            <div className="pointer-events-auto absolute inset-0 z-40 flex items-end justify-center bg-black/45 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-16 backdrop-blur-[2px]">
+              <div className="ui-panel w-full max-w-sm rounded-[1.4rem] border px-5 py-5 shadow-[0_20px_48px_rgba(0,0,0,0.45)]">
+                <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Konstelacja</p>
+                <h2 className="mt-2 text-[1.65rem] font-light tracking-[-0.03em]">
+                  Ułóż gwiazdozbiór
+                </h2>
+                <p className="ui-muted mt-3 text-[14px] font-light leading-relaxed">
+                  Co kilka poziomów pojawia się zarys — diament, zwierzę, roślina. Wciągnij
+                  kryształy w świetlne gniazda, aż struny złożą figurę. Pierwsze odkrycie trafia do
+                  Albumu.
+                </p>
+                <button
+                  type="button"
+                  className="play-seal mt-5 h-14 w-full rounded-[1.15rem] text-[15px] font-medium"
+                  onClick={() => {
+                    setIntroOpen(false);
+                    onConstellationIntroSeen?.();
+                  }}
+                >
+                  Rozumiem
+                </button>
+              </div>
+            </div>
           )}
 
           {countdown !== null && !cleared && countAt && (
@@ -735,7 +890,7 @@ export function GameBoard({
               role="status"
               aria-live="polite"
               aria-label={String(countdown)}
-              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em] text-[#e0f2fe]"
+              className="count-arrive pointer-events-none absolute font-light leading-none tracking-[-0.04em]"
               style={{ left: countAt.x, top: countAt.y }}
             >
               {countdown}
@@ -771,7 +926,7 @@ export function GameBoard({
                 synthRef.current?.unlock();
                 synthRef.current?.setMuted(next);
               }}
-              className="pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/35 text-[#e0f2fe] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e0f2fe]"
+              className="ui-chip pointer-events-auto absolute right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] grid h-11 w-11 place-items-center rounded-full border bg-black/35 backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ui-ice)]"
             >
               <SpeakerIcon muted={muted} />
             </button>
@@ -799,11 +954,11 @@ function HudStat({
     align === "end" ? "text-right" : align === "center" ? "text-center" : "text-left";
   return (
     <div className={alignClass}>
-      <p className="text-[9px] uppercase tracking-[0.18em] text-[#e0f2fe]/55">{label}</p>
+      <p className="ui-muted text-[9px] uppercase tracking-[0.18em]">{label}</p>
       <p
         className={`mt-0.5 font-light leading-none tabular-nums ${
           compact ? "text-xl" : "mt-1 text-3xl"
-        } ${tone === "amber" ? "text-[#f97316]" : "text-[#e0f2fe]"}`}
+        } ${tone === "amber" ? "ui-accent" : ""}`}
       >
         {value}
       </p>

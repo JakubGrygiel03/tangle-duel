@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
-import type { SoundPackId } from "@/lib/engine/economy";
-import type { VisualTheme } from "@/lib/engine/themes";
+import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
+import { themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 
 type CouchPhase =
   | { kind: "ready" }
@@ -17,6 +17,7 @@ type CouchDuelProps = {
   haptics: boolean;
   theme: VisualTheme;
   soundPack?: SoundPackId;
+  crystalShape?: CrystalShapeId;
   trail?: boolean;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
@@ -24,7 +25,7 @@ type CouchDuelProps = {
 
 function rollMatch(): { level: number; seed: number } {
   return {
-    level: 10 + Math.floor(Math.random() * 16),
+    level: 8 + Math.floor(Math.random() * 12),
     seed: (Math.random() * 0x7fffffff) | 0,
   };
 }
@@ -38,6 +39,7 @@ export function CouchDuel({
   haptics,
   theme,
   soundPack = "harp",
+  crystalShape = "diamond",
   trail = false,
   onMuted,
   onBack,
@@ -46,12 +48,15 @@ export function CouchDuel({
   const [phase, setPhase] = useState<CouchPhase>({ kind: "ready" });
   const [flash, setFlash] = useState<"top" | "bottom" | null>(null);
   const [locked, setLocked] = useState(false);
+  const [boardKey, setBoardKey] = useState(0);
 
   useEffect(() => {
     if (phase.kind !== "countdown") return;
     const timer = window.setTimeout(() => {
-      if (phase.seconds <= 1) setPhase({ kind: "race" });
-      else setPhase({ kind: "countdown", seconds: phase.seconds - 1 });
+      if (phase.seconds <= 1) {
+        setBoardKey((value) => value + 1);
+        setPhase({ kind: "race" });
+      } else setPhase({ kind: "countdown", seconds: phase.seconds - 1 });
     }, 900);
     return () => window.clearTimeout(timer);
   }, [phase]);
@@ -79,77 +84,74 @@ export function CouchDuel({
   };
 
   if (phase.kind === "race") {
+    const shared = {
+      level: match.level,
+      seed: match.seed,
+      race: true as const,
+      embed: true,
+      hideChrome: true,
+      compact: true,
+      muted,
+      haptics,
+      theme,
+      soundPack,
+      crystalShape,
+      trail,
+      onMenu: onBack,
+      onMuted,
+      onAdvance: () => undefined,
+    };
+
     return (
       <div
-        className="game-shell fixed inset-0 flex flex-col overflow-hidden text-[#e0f2fe]"
-        style={{ background: theme.ink }}
+        className="theme-chrome game-shell fixed inset-0 overflow-hidden"
+        style={{ background: theme.ink, ...themeChromeVars(theme) }}
       >
         <div className="play-bleed">
           <ThemeBackdrop theme={theme} />
         </div>
-        <div className="relative z-10 flex h-full min-h-0 flex-col">
-          <div className="relative min-h-0 flex-1 border-b border-[#e0f2fe]/15">
+
+        {/* Równe połowy + wąski pasek na środku — absolute, żeby flex nie zgniatał areny. */}
+        <div className="absolute inset-0 z-10">
+          <div className="absolute inset-x-0 top-0 bottom-[calc(50%+1.125rem)] overflow-hidden">
             {flash === "top" && <Shockwave />}
             <GameBoard
-              key={`top-${match.seed}`}
-              level={match.level}
-              seed={match.seed}
-              race
-              embed
+              key={`top-${match.seed}-${boardKey}`}
+              {...shared}
               inverted
-              hideChrome
-              compact
               label="Gracz A"
-              muted={muted}
-              haptics={haptics}
-              theme={theme}
-              soundPack={soundPack}
-              trail={trail}
-              onMenu={onBack}
-              onMuted={onMuted}
               onCleared={() => onWin("top")}
-              onAdvance={() => undefined}
             />
           </div>
-          <div className="relative z-20 flex h-10 shrink-0 items-center justify-center gap-4 border-y border-[#e0f2fe]/12 bg-black/50 backdrop-blur-md">
+
+          <div
+            className="absolute inset-x-0 top-1/2 z-30 flex h-9 -translate-y-1/2 items-center justify-between gap-2 border-y bg-black/60 px-3 backdrop-blur-md"
+            style={{ borderColor: "var(--ui-ice-soft)" }}
+          >
             <button
               type="button"
               onClick={onBack}
-              className="px-3 text-[12px] uppercase tracking-[0.2em] text-[#e0f2fe]/70"
+              className="ui-muted min-h-9 px-2 text-[11px] uppercase tracking-[0.18em]"
             >
               Wyjdź
             </button>
-            <span className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">
-              Couch duel
-            </span>
+            <span className="ui-kicker text-[10px] uppercase tracking-[0.28em]">Couch duel</span>
             <button
               type="button"
               onClick={() => onMuted(!muted)}
-              className="px-3 text-[12px] uppercase tracking-[0.2em] text-[#e0f2fe]/70"
+              className="ui-muted min-h-9 px-2 text-[11px] uppercase tracking-[0.18em]"
             >
               {muted ? "Dźwięk" : "Cisza"}
             </button>
           </div>
-          <div className="relative min-h-0 flex-1">
+
+          <div className="absolute inset-x-0 top-[calc(50%+1.125rem)] bottom-0 overflow-hidden">
             {flash === "bottom" && <Shockwave />}
             <GameBoard
-              key={`bot-${match.seed}`}
-              level={match.level}
-              seed={match.seed}
-              race
-              embed
-              hideChrome
-              compact
+              key={`bot-${match.seed}-${boardKey}`}
+              {...shared}
               label="Gracz B"
-              muted={muted}
-              haptics={haptics}
-              theme={theme}
-              soundPack={soundPack}
-              trail={trail}
-              onMenu={onBack}
-              onMuted={onMuted}
               onCleared={() => onWin("bottom")}
-              onAdvance={() => undefined}
             />
           </div>
         </div>
@@ -159,8 +161,8 @@ export function CouchDuel({
 
   return (
     <div
-      className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
-      style={{ background: theme.ink }}
+      className="theme-chrome game-shell fixed inset-0 flex items-center justify-center"
+      style={{ background: theme.ink, ...themeChromeVars(theme) }}
     >
       <div className="play-bleed">
         <ThemeBackdrop theme={theme} />
@@ -171,7 +173,7 @@ export function CouchDuel({
             type="button"
             onClick={onBack}
             aria-label="Wróć"
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 backdrop-blur-md"
+            className="ui-chip grid h-12 w-12 shrink-0 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
               <path
@@ -184,21 +186,21 @@ export function CouchDuel({
             </svg>
           </button>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Jeden telefon</p>
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Jeden telefon</p>
             <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">Couch duel</h1>
           </div>
         </header>
 
         {phase.kind === "ready" && (
           <div className="mt-10 flex flex-1 flex-col">
-            <p className="text-[15px] font-light leading-relaxed text-[#e0f2fe]/70">
+            <p className="ui-muted text-[15px] font-light leading-relaxed">
               Połóż telefon na stole. Ty i rywal siedzicie naprzeciw — ten sam splątany układ,
               kto pierwszy utrzyma czyste struny, wygrywa.
             </p>
             <button
               type="button"
               onClick={start}
-              className="mt-auto mb-2 h-[4.6rem] w-full rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[1.25rem] font-medium text-[#0b1020]"
+              className="play-seal mt-auto mb-2 h-[4.6rem] w-full rounded-[1.35rem] text-[1.25rem] font-medium"
             >
               3 · 2 · 1 · Start
             </button>
@@ -207,7 +209,7 @@ export function CouchDuel({
 
         {phase.kind === "countdown" && (
           <div className="flex flex-1 flex-col items-center justify-center">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Gotowi</p>
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Gotowi</p>
             <p className="mt-4 text-7xl font-light tabular-nums">{phase.seconds}</p>
           </div>
         )}
@@ -221,7 +223,7 @@ export function CouchDuel({
                   ? "Wygrywa góra"
                   : "Wygrywa dół"}
             </p>
-            <p className="mt-3 text-[15px] font-light text-[#e0f2fe]/65">
+            <p className="ui-muted mt-3 text-[15px] font-light">
               {phase.winner === "draw"
                 ? "Prawie równocześnie — pięknie."
                 : "Świetna runda. Gotowi na kolejną?"}
@@ -229,15 +231,11 @@ export function CouchDuel({
             <button
               type="button"
               onClick={start}
-              className="mt-auto mb-2 h-14 w-full rounded-[1.15rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-base font-medium text-[#0b1020]"
+              className="play-seal mt-auto mb-2 h-14 w-full rounded-[1.15rem] text-base font-medium"
             >
               Jeszcze raz
             </button>
-            <button
-              type="button"
-              onClick={onBack}
-              className="mb-1 h-12 w-full text-[14px] text-[#e0f2fe]/70"
-            >
+            <button type="button" onClick={onBack} className="ui-muted mb-1 h-12 w-full text-[14px]">
               Wróć do menu pojedynku
             </button>
           </div>
@@ -253,7 +251,7 @@ function Shockwave() {
       className="pointer-events-none absolute inset-0 z-30 animate-pulse"
       style={{
         background:
-          "radial-gradient(circle at 50% 50%, rgba(249,115,22,0.45), transparent 62%)",
+          "radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--ui-warm, #f97316) 45%, transparent), transparent 62%)",
       }}
       aria-hidden
     />

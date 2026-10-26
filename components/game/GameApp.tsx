@@ -16,6 +16,7 @@ import { StudioCard } from "@/components/game/StudioCard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
 import {
   isLevelPlayable,
+  mergeAlbumFromCleared,
   readSave,
   readServerSave,
   recordClearedLevel,
@@ -25,15 +26,26 @@ import {
   type GameSave,
 } from "@/components/game/storage";
 import { TutorialBoard } from "@/components/game/TutorialBoard";
-import { CONSTELLATIONS } from "@/lib/engine/constellations";
-import { getDailyChallenge } from "@/lib/engine/daily";
+import {
+  CONSTELLATIONS,
+  constellationKindLabel,
+  isConstellationLevel,
+  type ConstellationId,
+} from "@/lib/engine/constellations";
+import {
+  getDailyChallenge,
+  nextDailyStreak,
+  visibleDailyStreak,
+} from "@/lib/engine/daily";
 import {
   AD_COOLDOWN_MS,
   AD_CRYSTAL_REWARD,
+  CRYSTAL_SHAPES,
   PERFECT_MOVE_BONUS,
   SOUND_PACKS,
   TRAIL_PRICE,
   themeCrystalPrice,
+  type CrystalShapeId,
   type SoundPackId,
 } from "@/lib/engine/economy";
 import { CAMPAIGN_LEVELS, isEndlessUnlocked, type ArenaChrome } from "@/lib/engine/graph";
@@ -41,6 +53,7 @@ import {
   getTheme,
   isThemeUnlocked,
   THEMES,
+  themeChromeVars,
   themeUnlockRequirement,
   themesUnlockedByClear,
   type ThemeId,
@@ -80,6 +93,26 @@ export function GameApp() {
   const [menuBand, setMenuBand] = useState<ArenaChrome | undefined>(undefined);
   const visible: Screen = screen === "auto" ? (save.tutorialSeen ? "menu" : "tutorial") : screen;
   const dailyDone = save.dailyClaimedOn === daily.day;
+  const dailyStreak = visibleDailyStreak(save.dailyClaimedOn, save.dailyStreak, daily.day);
+
+  // Uzupełnij album z postępu (stare save'y / clear bez wpisu).
+  useEffect(() => {
+    updateSave((current) => {
+      const constellations = mergeAlbumFromCleared(
+        current.clearedCampaign,
+        current.constellations,
+        current.level,
+        current.endlessBest,
+      );
+      if (
+        constellations.length === current.constellations.length &&
+        constellations.every((id, index) => id === current.constellations[index])
+      ) {
+        return current;
+      }
+      return { ...current, constellations };
+    });
+  }, []);
 
   const play = (level: number, mode: PlayMode = "campaign") => {
     setPlayMode(mode);
@@ -185,10 +218,15 @@ export function GameApp() {
           return current;
         }
         const perfectExtra = info.perfect ? PERFECT_MOVE_BONUS : 0;
-        note = `Daily! +${challenge.reward + perfectExtra} kryształów`;
+        const streak = nextDailyStreak(current.dailyClaimedOn, current.dailyStreak, challenge.day);
+        note =
+          streak > 1
+            ? `Daily · seria ${streak} · +${challenge.reward + perfectExtra}`
+            : `Daily! +${challenge.reward + perfectExtra} kryształów`;
         return {
           ...current,
           dailyClaimedOn: challenge.day,
+          dailyStreak: streak,
           crystals: current.crystals + challenge.reward + perfectExtra,
         };
       });
@@ -205,10 +243,13 @@ export function GameApp() {
       );
       const { save, reward } = recordClearedLevel(current, info.level, {
         perfect: info.perfect,
+        constellationId: info.constellationId as ConstellationId | undefined,
       });
       if (reward.constellation) {
         const figure = CONSTELLATIONS.find((item) => item.id === reward.constellation);
-        note = figure ? `${figure.reveal} · +${reward.crystals}` : `+${reward.crystals} kryształów`;
+        note = figure
+          ? `Album: ${figure.name} · +${reward.crystals}`
+          : `+${reward.crystals} kryształów`;
       } else if (unlocked[0]) note = `Odblokowano: ${unlocked[0]!.name}`;
       else if (!reward.alreadyCleared && reward.crystals > 0) {
         note = info.perfect
@@ -225,21 +266,21 @@ export function GameApp() {
     if (rushResult !== null) {
       stage = (
         <div
-          className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
-          style={{ background: theme.ink }}
+          className="theme-chrome game-shell fixed inset-0 flex items-center justify-center"
+          style={{ background: theme.ink, ...themeChromeVars(theme) }}
         >
           <div className="play-bleed">
             <ThemeBackdrop theme={theme} />
           </div>
           <div className="play-column z-10 flex flex-col items-center justify-center px-6 text-center">
-            <p className="text-[11px] uppercase tracking-[0.32em] text-[#e0f2fe]/45">Błyskawica</p>
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.32em]">Błyskawica</p>
             <h2 className="mt-3 text-[2.4rem] font-light tracking-[-0.03em]">Koniec biegu</h2>
-            <p className="mt-4 text-[3.5rem] font-light tabular-nums text-[#f97316]">{rushResult}</p>
-            <p className="mt-1 text-[14px] text-[#e0f2fe]/55">układów z rzędu</p>
+            <p className="ui-accent mt-4 text-[3.5rem] font-light tabular-nums">{rushResult}</p>
+            <p className="ui-muted mt-1 text-[14px]">układów z rzędu</p>
             <button
               type="button"
               onClick={() => play(1, "rush")}
-              className="mt-10 h-14 w-full max-w-xs rounded-[1.15rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[16px] font-medium text-[#0b1020]"
+              className="play-seal mt-10 h-14 w-full max-w-xs rounded-[1.15rem] text-[16px] font-medium"
             >
               Jeszcze raz
             </button>
@@ -249,7 +290,7 @@ export function GameApp() {
                 setRushResult(null);
                 setScreen("menu");
               }}
-              className="mt-3 h-12 w-full max-w-xs text-[14px] text-[#e0f2fe]/70"
+              className="ui-muted mt-3 h-12 w-full max-w-xs text-[14px]"
             >
               Menu
             </button>
@@ -265,10 +306,21 @@ export function GameApp() {
           haptics={save.haptics}
           theme={theme}
           soundPack={save.soundPack}
+          crystalShape={save.crystalShape}
           trail={save.trailOwned && save.trailEnabled}
           mode={boardMode}
           seed={playMode === "daily" ? dailySeed : undefined}
           race={playMode === "daily"}
+          constellationIntro={
+            playMode !== "daily" &&
+            playMode !== "rush" &&
+            boardMode === "classic" &&
+            !save.constellationIntroSeen &&
+            isConstellationLevel(save.level)
+          }
+          onConstellationIntroSeen={() =>
+            updateSave((current) => ({ ...current, constellationIntroSeen: true }))
+          }
           onMenu={() => setScreen("menu")}
           onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
           onCleared={onCleared}
@@ -287,6 +339,7 @@ export function GameApp() {
         haptics={save.haptics}
         theme={theme}
         soundPack={save.soundPack}
+        crystalShape={save.crystalShape}
         trail={save.trailOwned && save.trailEnabled}
         onMuted={(muted) => updateSave((current) => ({ ...current, muted }))}
         onBack={() => setScreen("menu")}
@@ -309,18 +362,16 @@ export function GameApp() {
   } else {
     stage = (
       <div
-        className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
-        style={{ background: theme.ink }}
+        className="theme-chrome game-shell fixed inset-0 flex items-center justify-center"
+        style={{ background: theme.ink, ...themeChromeVars(theme) }}
       >
         <div className="play-bleed">
           <ThemeBackdrop theme={theme} />
         </div>
         <div ref={shellRef} className="play-column z-10">
-          <LivingSky
-            mood={visible === "menu" ? "menu" : "calm"}
-            band={visible === "menu" ? menuBand : undefined}
-            theme={theme}
-          />
+          {visible === "menu" && (
+            <LivingSky mood="menu" band={menuBand} theme={theme} />
+          )}
           <div
             className="pointer-events-none absolute inset-x-0 top-0 z-10 h-36"
             style={{
@@ -342,6 +393,7 @@ export function GameApp() {
                 theme={theme}
                 dailyDone={dailyDone}
                 dailyReward={daily.reward}
+                dailyStreak={dailyStreak}
                 albumCount={save.constellations.length}
                 onPlay={() => play(save.level)}
                 onDaily={playDaily}
@@ -377,6 +429,7 @@ export function GameApp() {
             )}
             {visible === "levels" && (
               <LevelSelect
+                theme={theme}
                 current={save.level}
                 cleared={save.clearedCampaign}
                 endlessBest={save.endlessBest}
@@ -406,6 +459,20 @@ export function GameApp() {
                     };
                   });
                   setUnlockNote("Motyw odblokowany");
+                }}
+                onPickShape={(id) => updateSave((current) => ({ ...current, crystalShape: id }))}
+                onBuyShape={(id, price) => {
+                  updateSave((current) => {
+                    if (current.crystals < price) return current;
+                    if (current.purchasedShapes.includes(id)) return current;
+                    return {
+                      ...current,
+                      crystals: current.crystals - price,
+                      purchasedShapes: [...current.purchasedShapes, id],
+                      crystalShape: id,
+                    };
+                  });
+                  setUnlockNote("Kształt odblokowany");
                 }}
                 onPickSound={(id) => updateSave((current) => ({ ...current, soundPack: id }))}
                 onBuySound={(id, price) => {
@@ -459,6 +526,7 @@ export function GameApp() {
             {visible === "settings" && (
               <SettingsScreen
                 save={save}
+                theme={theme}
                 confirmReset={confirmReset}
                 onBack={() => setScreen("menu")}
                 onToggleMuted={() => updateSave((current) => ({ ...current, muted: !current.muted }))}
@@ -501,7 +569,8 @@ export function GameApp() {
       {unlockNote && (
         <p
           role="status"
-          className="hint-in pointer-events-none fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-50 mx-auto w-fit rounded-full border border-[#e0f2fe]/20 bg-black/70 px-5 py-2.5 text-sm text-[#e0f2fe] backdrop-blur-md"
+          className="theme-chrome hint-in pointer-events-none fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-50 mx-auto w-fit rounded-full border bg-black/70 px-5 py-2.5 text-sm backdrop-blur-md ui-chip"
+          style={themeChromeVars(theme)}
         >
           {unlockNote}
         </p>
@@ -517,6 +586,7 @@ function MainMenu({
   theme,
   dailyDone,
   dailyReward,
+  dailyStreak,
   albumCount,
   onPlay,
   onDaily,
@@ -535,6 +605,7 @@ function MainMenu({
   theme: VisualTheme;
   dailyDone: boolean;
   dailyReward: number;
+  dailyStreak: number;
   albumCount: number;
   onPlay: () => void;
   onDaily: () => void;
@@ -556,7 +627,7 @@ function MainMenu({
           onClick={onToggleMuted}
           aria-pressed={muted}
           aria-label={muted ? "Włącz dźwięk" : "Wycisz dźwięk"}
-          className="absolute left-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 text-[#e0f2fe] backdrop-blur-md"
+          className="ui-chip absolute left-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
         >
           <SpeakerIcon muted={muted} />
         </button>
@@ -564,7 +635,7 @@ function MainMenu({
           type="button"
           onClick={onSettings}
           aria-label="Ustawienia"
-          className="absolute right-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 text-[#e0f2fe] backdrop-blur-md"
+          className="ui-chip absolute right-0 top-0 z-30 grid h-11 w-11 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
         >
           <GearIcon />
         </button>
@@ -574,14 +645,12 @@ function MainMenu({
             <br />
             Duel
           </h1>
-          <div className="mx-auto mt-3.5 flex items-center justify-center gap-3 text-[#e0f2fe]/70">
+          <div className="mx-auto mt-3.5 flex items-center justify-center gap-3 opacity-70">
             <span className="h-px w-9 bg-current opacity-40" />
             <Diamond style={{ color: theme.warm }} />
             <span className="h-px w-9 bg-current opacity-40" />
           </div>
-          <p className="mt-2.5 text-[12px] tabular-nums tracking-wide text-[#e0f2fe]/45">
-            {crystals} kryształów
-          </p>
+          <p className="ui-muted mt-2.5 text-[12px] tabular-nums tracking-wide">{crystals} kryształów</p>
         </div>
       </div>
 
@@ -590,14 +659,14 @@ function MainMenu({
           type="button"
           data-menu-play
           onClick={onPlay}
-          className="play-seal flex h-[4.5rem] w-full items-center gap-3.5 rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] px-3.5 text-left text-[#0b1020] active:scale-[0.985]"
+          className="play-seal flex h-[4.5rem] w-full items-center gap-3.5 rounded-[1.35rem] px-3.5 text-left active:scale-[0.985]"
         >
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/10">
-            <PlayCrystal accent={theme.warm} />
+            <PlayCrystal accent={theme.warm} ink={theme.ink} />
           </span>
           <span className="min-w-0">
             <span className="block text-[1.4rem] font-medium leading-none tracking-wide">Graj</span>
-            <span className="mt-1.5 block text-[13px] font-normal text-[#0b1020]/55">{label}</span>
+            <span className="mt-1.5 block text-[13px] font-normal opacity-55">{label}</span>
           </span>
           <span className="ml-auto pr-2 text-[2rem] font-light tabular-nums leading-none">
             {level > CAMPAIGN_LEVELS ? "∞" : level}
@@ -608,28 +677,48 @@ function MainMenu({
           type="button"
           onClick={onDaily}
           className={`mt-2.5 flex h-[4.35rem] w-full items-center gap-3.5 rounded-[1.25rem] border px-3.5 text-left backdrop-blur-md active:scale-[0.985] ${
-            dailyDone
-              ? "border-[#e0f2fe]/14 bg-black/35 text-[#e0f2fe]"
-              : "border-[#f97316]/45 bg-[#f97316]/14 text-[#fff7ed] shadow-[0_0_28px_rgba(249,115,22,0.18)]"
+            dailyDone ? "ui-panel" : "ui-panel-active"
           }`}
+          style={
+            dailyDone
+              ? undefined
+              : {
+                  borderColor: `${theme.warm}73`,
+                  background: `${theme.warm}24`,
+                  boxShadow: `0 0 28px ${theme.warm}2e`,
+                }
+          }
         >
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-black/25">
-            <DailyIcon accent={dailyDone ? "#e0f2fe" : "#f97316"} />
+            <DailyIcon accent={dailyDone ? theme.ice : theme.warm} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[1.15rem] font-medium leading-none">Daily</span>
-            <span className={`mt-1.5 block text-[12px] ${dailyDone ? "text-[#e0f2fe]/50" : "text-[#ffedd5]/75"}`}>
+            <span className={`mt-1.5 block text-[12px] ${dailyDone ? "ui-muted" : "opacity-80"}`}>
               {dailyDone ? "Zaliczone dziś" : `Układ dnia · +${dailyReward}`}
             </span>
           </span>
+          {dailyStreak > 0 && (
+            <span
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5"
+              style={{
+                background: `${theme.warm}22`,
+                color: theme.warm,
+              }}
+              aria-label={`Seria ${dailyStreak} ${dailyStreak === 1 ? "dzień" : "dni"}`}
+            >
+              <StreakFlame accent={theme.warm} />
+              <span className="text-[15px] font-medium tabular-nums leading-none">{dailyStreak}</span>
+            </span>
+          )}
         </button>
 
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
           <FeatureTile label="Pojedynek" detail="Kanapa lub kod" onClick={onDuel}>
-            <DuelIcon />
+            <DuelIcon accent={theme.warm} />
           </FeatureTile>
           <FeatureTile label="Tryby" detail="Błyskawica · Echo" onClick={onModes}>
-            <EventIcon />
+            <EventIcon accent={theme.warm} />
           </FeatureTile>
         </div>
 
@@ -638,13 +727,13 @@ function MainMenu({
             <LevelsIcon />
           </DockTile>
           <DockTile label="Album" onClick={onAlbum}>
-            <AlbumIcon count={albumCount} />
+            <AlbumIcon count={albumCount} accent={theme.warm} />
           </DockTile>
           <DockTile label="Sklep" onClick={onShop}>
-            <ShopIcon />
+            <ShopIcon accent={theme.warm} />
           </DockTile>
           <DockTile label="Jak grać" onClick={onTutorial}>
-            <LearnIcon />
+            <LearnIcon accent={theme.warm} />
           </DockTile>
         </div>
       </div>
@@ -700,10 +789,10 @@ function ModeRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[4.75rem] flex-col justify-center rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 px-4 text-left backdrop-blur-md active:scale-[0.985]"
+      className="ui-panel flex h-[4.75rem] flex-col justify-center rounded-[1.15rem] border px-4 text-left backdrop-blur-md active:scale-[0.985]"
     >
       <span className="text-[17px] font-normal">{title}</span>
-      <span className="mt-1 text-[13px] text-[#e0f2fe]/50">{detail}</span>
+      <span className="ui-muted mt-1 text-[13px]">{detail}</span>
     </button>
   );
 }
@@ -723,29 +812,111 @@ function AlbumScreen({
         kicker={`${open.size} / ${CONSTELLATIONS.length} konstelacji`}
         onBack={onBack}
       />
-      <div className="mt-6 grid min-h-0 flex-1 grid-cols-2 content-start gap-2.5 overflow-y-auto pb-2">
+      <div className="mt-6 grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto pb-2">
         {CONSTELLATIONS.map((figure) => {
           const found = open.has(figure.id);
           return (
             <div
               key={figure.id}
-              className={`flex h-[7.5rem] flex-col items-center justify-center rounded-[1.15rem] border px-3 text-center backdrop-blur-md ${
-                found
-                  ? "border-[#fbbf24]/45 bg-[#fbbf24]/10 text-[#fffbeb]"
-                  : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]/35"
+              className={`flex min-h-[9.4rem] flex-col items-center justify-center rounded-[1.2rem] border px-3 py-3.5 text-center backdrop-blur-md ${
+                found ? "ui-panel-star" : "ui-panel-locked"
               }`}
             >
-              <span className="text-[2rem] font-light leading-none">{found ? "✦" : "·"}</span>
-              <span className="mt-2 text-[15px] font-normal">{found ? figure.name : "???"}</span>
-              <span className="mt-1 text-[11px] opacity-60">Poziom {figure.level}</span>
+              {found ? (
+                <ConstellationSketch figureId={figure.id} lit />
+              ) : (
+                <LockedConstellationMark />
+              )}
+              <span className="mt-2.5 text-[15px] font-normal">{found ? figure.name : "???"}</span>
+              <span className="ui-muted mt-1 text-[11px]">
+                {found
+                  ? `${constellationKindLabel(figure.kind)} · poz. ${figure.level}`
+                  : `Poziom ${figure.level}`}
+              </span>
             </div>
           );
         })}
       </div>
-      <p className="pb-2 text-center text-[12px] text-[#e0f2fe]/40">
-        Co 5 poziomów odkrywasz nową figurę
+      <p className="ui-muted pb-2 text-center text-[12px]">
+        Co 5 poziomów — złóż zarys, a figura odblokuje się tutaj
       </p>
     </div>
+  );
+}
+
+function LockedConstellationMark() {
+  return (
+    <svg width="72" height="72" viewBox="-1.1 -1.1 2.2 2.2" aria-hidden>
+      {[
+        [0, -0.55],
+        [0.48, -0.18],
+        [0.3, 0.48],
+        [-0.3, 0.48],
+        [-0.48, -0.18],
+        [0, 0.05],
+      ].map(([x, y], index) => (
+        <circle
+          key={index}
+          cx={x}
+          cy={y}
+          r={0.07}
+          fill="#64748b"
+          opacity={0.55}
+        />
+      ))}
+    </svg>
+  );
+}
+
+function ConstellationSketch({ figureId, lit }: { figureId: string; lit?: boolean }) {
+  const figure = CONSTELLATIONS.find((item) => item.id === figureId);
+  if (!figure) return <span className="text-[1.6rem]">·</span>;
+  const glow = lit !== false;
+  const stroke = glow ? "var(--ui-warm)" : "#64748b";
+  const fill = glow ? "var(--ui-ice)" : "#475569";
+  return (
+    <svg width="72" height="72" viewBox="-1.15 -1.15 2.3 2.3" aria-hidden>
+      {glow && (
+        <defs>
+          <filter id={`const-glow-${figure.id}`} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="0.04" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+      )}
+      <g filter={glow ? `url(#const-glow-${figure.id})` : undefined}>
+        {figure.edges.map((edge, index) => {
+          const a = figure.solved[edge.a];
+          const b = figure.solved[edge.b];
+          if (!a || !b) return null;
+          return (
+            <line
+              key={index}
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              stroke={stroke}
+              strokeWidth={glow ? 0.085 : 0.055}
+              strokeLinecap="round"
+              opacity={glow ? 0.95 : 0.45}
+            />
+          );
+        })}
+        {figure.solved.map((point, index) => (
+          <circle
+            key={index}
+            cx={point.x}
+            cy={point.y}
+            r={glow ? 0.09 : 0.065}
+            fill={fill}
+          />
+        ))}
+      </g>
+    </svg>
   );
 }
 
@@ -762,31 +933,33 @@ function EventScreen({
     <div className="flex h-full min-h-0 flex-col">
       <ScreenHeader title="Event" kicker="Sezonowy układ" onBack={onBack} />
       <div className="mt-8 flex flex-1 flex-col">
-        <div className="rounded-[1.35rem] border border-[#e0f2fe]/16 bg-black/45 px-5 py-6 backdrop-blur-md">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#f97316]/15">
-            <EventIcon large />
+        <div className="ui-panel rounded-[1.35rem] border px-5 py-6 backdrop-blur-md">
+          <div
+            className="mx-auto grid h-14 w-14 place-items-center rounded-2xl"
+            style={{ background: `${theme.warm}26` }}
+          >
+            <EventIcon large accent={theme.warm} />
           </div>
           <h2 className="mt-5 text-center text-[1.65rem] font-light tracking-[-0.03em]">Mgławica weekendu</h2>
-          <p className="mt-3 text-center text-[14px] font-light leading-relaxed text-[#e0f2fe]/60">
+          <p className="ui-muted mt-3 text-center text-[14px] font-light leading-relaxed">
             Specjalny tor poziomów i nagrody motywowe wrócą wkrótce. Zbieraj kryształy w sklepie, żeby być gotowym.
           </p>
         </div>
         <button
           type="button"
           onClick={onShop}
-          className="mt-4 h-14 w-full rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 text-[15px] backdrop-blur-md"
+          className="ui-panel mt-4 h-14 w-full rounded-[1.15rem] border text-[15px] backdrop-blur-md"
         >
           Idź do sklepu
         </button>
-        <p className="mt-auto pb-2 text-center text-[12px] text-[#e0f2fe]/40" style={{ color: `${theme.ice}66` }}>
-          Eventy rotują co tydzień
-        </p>
+        <p className="ui-muted mt-auto pb-2 text-center text-[12px]">Eventy rotują co tydzień</p>
       </div>
     </div>
   );
 }
 
 function LevelSelect({
+  theme,
   current,
   cleared,
   endlessBest,
@@ -795,6 +968,7 @@ function LevelSelect({
   onPick,
   onEndless,
 }: {
+  theme: VisualTheme;
   current: number;
   cleared: number[];
   endlessBest: number;
@@ -816,7 +990,16 @@ function LevelSelect({
           const clearedLevel = cleared.includes(level);
           const open = isLevelPlayable(level, cleared);
           const active = level === current && open;
-          const star = level % 5 === 0;
+          const star = isConstellationLevel(level);
+          const tone = active
+            ? "ui-panel-active"
+            : !open
+              ? "ui-panel-locked"
+              : star
+                ? "ui-panel-star"
+                : clearedLevel
+                  ? "ui-panel-soft"
+                  : "ui-panel";
           return (
             <button
               key={level}
@@ -827,22 +1010,12 @@ function LevelSelect({
               }}
               className={`flex h-[4.6rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
                 open ? "active:scale-[0.98]" : "opacity-35"
-              } ${
-                active
-                  ? "border-[#f97316]/80 bg-[#f97316]/18 text-[#fff7ed] shadow-[0_0_24px_rgba(249,115,22,0.28)]"
-                  : !open
-                    ? "border-[#e0f2fe]/08 bg-black/20 text-[#e0f2fe]/50"
-                    : star
-                      ? "border-[#fbbf24]/45 bg-[#fbbf24]/08 text-[#fffbeb]"
-                      : clearedLevel
-                        ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
-                        : "border-[#e0f2fe]/12 bg-black/35 text-[#e0f2fe]"
-              }`}
+              } ${tone}`}
             >
               {star && open ? (
-                <span className="mb-0.5 text-[10px] text-[#fbbf24]">✦</span>
+                <span className="ui-accent mb-0.5 text-[10px]">✦</span>
               ) : clearedLevel ? (
-                <Diamond className="mb-0.5 text-[#e0f2fe]" />
+                <Diamond className="mb-0.5" style={{ color: theme.ice }} />
               ) : (
                 <span className="mb-0.5 h-2" />
               )}
@@ -856,17 +1029,15 @@ function LevelSelect({
         disabled={!endlessOpen}
         onClick={onEndless}
         className={`mt-3 flex h-[4.4rem] flex-col items-center justify-center rounded-[1.15rem] border backdrop-blur-md ${
-          endlessOpen
-            ? "border-[#e0f2fe]/28 bg-[#e0f2fe]/10 text-[#e0f2fe]"
-            : "border-[#e0f2fe]/10 bg-black/25 text-[#e0f2fe]/35"
+          endlessOpen ? "ui-panel-soft" : "ui-panel-locked"
         }`}
       >
         <span className="text-[1.15rem] font-light">Nieskończone</span>
-        <span className="mt-1 text-[12px] text-[#e0f2fe]/55">
+        <span className="ui-muted mt-1 text-[12px]">
           {endlessOpen
             ? endlessBest > 0
-              ? `Najdalej: ${endlessBest}`
-              : "Odblokowane"
+              ? `Rekord: poziom ${endlessBest}`
+              : "Po kampanii · bez końca"
             : `Po poziomie ${CAMPAIGN_LEVELS}`}
         </span>
       </button>
@@ -880,6 +1051,8 @@ function ShopScreen({
   onNote,
   onPickTheme,
   onBuyTheme,
+  onPickShape,
+  onBuyShape,
   onPickSound,
   onBuySound,
   onBuyTrail,
@@ -890,132 +1063,165 @@ function ShopScreen({
   onNote: (note: string) => void;
   onPickTheme: (id: ThemeId) => void;
   onBuyTheme: (id: ThemeId, price: number) => void;
+  onPickShape: (id: CrystalShapeId) => void;
+  onBuyShape: (id: CrystalShapeId, price: number) => void;
   onPickSound: (id: SoundPackId) => void;
   onBuySound: (id: SoundPackId, price: number) => void;
   onBuyTrail: () => void;
   onWatchAd: () => void;
 }) {
   const adReady = Date.now() - save.lastAdAt >= AD_COOLDOWN_MS;
+  const tile =
+    "ui-panel flex min-h-[4.75rem] items-center gap-3.5 rounded-[1.15rem] border px-3.5 py-3 text-left backdrop-blur-md";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ScreenHeader title="Sklep" kicker={`${save.crystals} kryształów`} onBack={onBack} />
-      <div className="mt-5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pb-2">
-        <p className="px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Zarabiaj</p>
-        <button
-          type="button"
-          onClick={onWatchAd}
-          className="flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 px-4 text-left backdrop-blur-md"
-        >
+      <div className="mt-5 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-4">
+        <p className="ui-kicker px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Zarabiaj</p>
+        <button type="button" onClick={onWatchAd} className={`${tile} justify-between`}>
           <span>
             <span className="block text-[17px] font-normal">Obejrzyj reklamę</span>
-            <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
+            <span className="ui-muted mt-1 block text-[13px]">
               {adReady ? `+${AD_CRYSTAL_REWARD} kryształów` : "Zaraz będzie dostępna"}
             </span>
           </span>
-          <span className="text-[1.35rem] font-light tabular-nums text-[#f97316]">+{AD_CRYSTAL_REWARD}</span>
+          <span className="ui-accent text-[1.35rem] font-light tabular-nums">+{AD_CRYSTAL_REWARD}</span>
         </button>
 
-        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Motywy</p>
-        {THEMES.map((item) => {
-          const unlocked = isThemeUnlocked(
-            item,
-            save.clearedCampaign,
-            save.endlessBest,
-            save.purchasedThemes,
-          );
-          const price = themeCrystalPrice(item);
-          const active = save.themeId === item.id;
-          const canBuy = !unlocked && price !== null && save.crystals >= price;
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Motywy</p>
+        <div className="flex flex-col gap-3">
+          {THEMES.map((item) => {
+            const unlocked = isThemeUnlocked(
+              item,
+              save.clearedCampaign,
+              save.endlessBest,
+              save.purchasedThemes,
+            );
+            const price = themeCrystalPrice(item);
+            const active = save.themeId === item.id;
+            const canBuy = !unlocked && price !== null && save.crystals >= price;
 
-          return (
-            <button
-              key={item.id}
-              type="button"
-              disabled={!unlocked && !canBuy}
-              onClick={() => {
-                if (unlocked) {
-                  onPickTheme(item.id);
-                  return;
-                }
-                if (price !== null && canBuy) onBuyTheme(item.id, price);
-                else if (price !== null) onNote(`Potrzebujesz ${price} kryształów`);
-              }}
-              className={`flex h-[4.75rem] items-center gap-3.5 rounded-[1.15rem] border px-3.5 text-left backdrop-blur-md ${
-                active
-                  ? "border-[#f97316]/70 bg-[#f97316]/15"
-                  : unlocked || canBuy
-                    ? "border-[#e0f2fe]/16 bg-black/45"
-                    : "border-[#e0f2fe]/10 bg-black/25 opacity-55"
-              }`}
-            >
-              <span
-                className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl"
-                style={{
-                  background: `radial-gradient(circle at 35% 30%, ${item.crystalCool[0]}, ${item.sky.a})`,
+            return (
+              <button
+                key={item.id}
+                type="button"
+                disabled={!unlocked && !canBuy}
+                onClick={() => {
+                  if (unlocked) {
+                    onPickTheme(item.id);
+                    return;
+                  }
+                  if (price !== null && canBuy) onBuyTheme(item.id, price);
+                  else if (price !== null) onNote(`Potrzebujesz ${price} kryształów`);
                 }}
+                className={`${tile} ${
+                  active ? "ui-panel-active" : unlocked || canBuy ? "" : "ui-panel-locked opacity-55"
+                }`}
               >
                 <span
-                  className="block h-4 w-4 rotate-45"
-                  style={{ background: unlocked || canBuy ? item.warm : "#64748b" }}
-                />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[17px] font-normal">{item.name}</span>
-                <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
-                  {unlocked
-                    ? active
-                      ? "Aktywny"
-                      : "Odblokowany"
-                    : price !== null
-                      ? `${themeUnlockRequirement(item)} · lub ${price}`
-                      : themeUnlockRequirement(item)}
+                  className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl"
+                  style={{
+                    background: `radial-gradient(circle at 35% 30%, ${item.crystalCool[0]}, ${item.sky.a})`,
+                  }}
+                >
+                  <span
+                    className="block h-4 w-4 rotate-45"
+                    style={{ background: unlocked || canBuy ? item.warm : "#64748b" }}
+                  />
                 </span>
-              </span>
-              {!unlocked && price !== null && (
-                <span className="text-[15px] font-light tabular-nums text-[#e0f2fe]/70">{price}</span>
-              )}
-            </button>
-          );
-        })}
-
-        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Brzmienia</p>
-        {SOUND_PACKS.map((pack) => {
-          const owned = pack.price === 0 || save.purchasedSounds.includes(pack.id);
-          const active = save.soundPack === pack.id;
-          const canBuy = !owned && save.crystals >= pack.price;
-          return (
-            <button
-              key={pack.id}
-              type="button"
-              disabled={!owned && !canBuy}
-              onClick={() => {
-                if (owned) onPickSound(pack.id);
-                else if (canBuy) onBuySound(pack.id, pack.price);
-                else onNote(`Potrzebujesz ${pack.price} kryształów`);
-              }}
-              className={`flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border px-4 text-left backdrop-blur-md ${
-                active
-                  ? "border-[#f97316]/70 bg-[#f97316]/15"
-                  : owned || canBuy
-                    ? "border-[#e0f2fe]/16 bg-black/45"
-                    : "border-[#e0f2fe]/10 bg-black/25 opacity-55"
-              }`}
-            >
-              <span>
-                <span className="block text-[17px] font-normal">{pack.name}</span>
-                <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
-                  {owned ? (active ? "Aktywne" : pack.detail) : pack.detail}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-normal">{item.name}</span>
+                  <span className="ui-muted mt-1 block text-[13px]">
+                    {unlocked
+                      ? active
+                        ? "Aktywny"
+                        : "Odblokowany"
+                      : price !== null
+                        ? `${themeUnlockRequirement(item)} · lub ${price}`
+                        : themeUnlockRequirement(item)}
+                  </span>
                 </span>
-              </span>
-              {!owned && (
-                <span className="text-[15px] font-light tabular-nums text-[#e0f2fe]/70">{pack.price}</span>
-              )}
-            </button>
-          );
-        })}
+                {!unlocked && price !== null && (
+                  <span className="ui-muted text-[15px] font-light tabular-nums">{price}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
-        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Efekty</p>
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Kryształy</p>
+        <div className="flex flex-col gap-3">
+          {CRYSTAL_SHAPES.map((shape) => {
+            const owned = shape.price === 0 || save.purchasedShapes.includes(shape.id);
+            const active = save.crystalShape === shape.id;
+            const canBuy = !owned && save.crystals >= shape.price;
+            return (
+              <button
+                key={shape.id}
+                type="button"
+                disabled={!owned && !canBuy}
+                onClick={() => {
+                  if (owned) onPickShape(shape.id);
+                  else if (canBuy) onBuyShape(shape.id, shape.price);
+                  else onNote(`Potrzebujesz ${shape.price} kryształów`);
+                }}
+                className={`${tile} ${
+                  active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
+                }`}
+              >
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+                  <ShapePreview id={shape.id} active={owned || canBuy} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-normal">{shape.name}</span>
+                  <span className="ui-muted mt-1 block text-[13px]">
+                    {owned ? (active ? "Aktywny na planszy" : shape.detail) : shape.detail}
+                  </span>
+                </span>
+                {!owned && (
+                  <span className="ui-muted text-[15px] font-light tabular-nums">{shape.price}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Brzmienia</p>
+        <div className="flex flex-col gap-3">
+          {SOUND_PACKS.map((pack) => {
+            const owned = pack.price === 0 || save.purchasedSounds.includes(pack.id);
+            const active = save.soundPack === pack.id;
+            const canBuy = !owned && save.crystals >= pack.price;
+            return (
+              <button
+                key={pack.id}
+                type="button"
+                disabled={!owned && !canBuy}
+                onClick={() => {
+                  if (owned) onPickSound(pack.id);
+                  else if (canBuy) onBuySound(pack.id, pack.price);
+                  else onNote(`Potrzebujesz ${pack.price} kryształów`);
+                }}
+                className={`${tile} justify-between ${
+                  active ? "ui-panel-active" : owned || canBuy ? "" : "ui-panel-locked opacity-55"
+                }`}
+              >
+                <span>
+                  <span className="block text-[17px] font-normal">{pack.name}</span>
+                  <span className="ui-muted mt-1 block text-[13px]">
+                    {owned ? (active ? "Aktywne" : pack.detail) : pack.detail}
+                  </span>
+                </span>
+                {!owned && (
+                  <span className="ui-muted text-[15px] font-light tabular-nums">{pack.price}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Efekty</p>
         <button
           type="button"
           onClick={() => {
@@ -1025,15 +1231,16 @@ function ShopScreen({
             }
             onBuyTrail();
           }}
-          className={`flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border px-4 text-left backdrop-blur-md ${
-            save.trailOwned && save.trailEnabled
-              ? "border-[#f97316]/70 bg-[#f97316]/15"
-              : "border-[#e0f2fe]/16 bg-black/45"
+          className={`${tile} ${
+            save.trailOwned && save.trailEnabled ? "ui-panel-active" : ""
           }`}
         >
-          <span>
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-black/30">
+            <TrailIcon active={save.trailOwned} />
+          </span>
+          <span className="min-w-0 flex-1">
             <span className="block text-[17px] font-normal">Ślad światła</span>
-            <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">
+            <span className="ui-muted mt-1 block text-[13px]">
               {save.trailOwned
                 ? save.trailEnabled
                   ? "Włączony · stuknij, by wyłączyć"
@@ -1041,29 +1248,92 @@ function ShopScreen({
                 : "Pył za przeciąganym kryształem"}
             </span>
           </span>
-          <span className="text-[15px] font-light tabular-nums text-[#e0f2fe]/70">
+          <span className="ui-muted text-[15px] font-light tabular-nums">
             {save.trailOwned ? (save.trailEnabled ? "ON" : "OFF") : TRAIL_PRICE}
           </span>
         </button>
 
-        <p className="mt-3 px-0.5 text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Wsparcie</p>
-        <SettingRow
-          label="Usuń reklamy"
-          detail="Wkrótce — jednorazowy zakup"
-          onClick={() => onNote("Płatności wkrótce")}
-        />
-        <SettingRow
-          label="Paczka kryształów"
-          detail="Wkrótce — mała / średnia / duża"
-          onClick={() => onNote("Płatności wkrótce")}
-        />
+        <p className="ui-kicker mt-2 px-0.5 pt-1 text-[11px] uppercase tracking-[0.28em]">Wsparcie</p>
+        <div className="flex flex-col gap-3">
+          <SettingRow
+            label="Usuń reklamy"
+            detail="Wkrótce — jednorazowy zakup"
+            onClick={() => onNote("Płatności wkrótce")}
+          />
+          <SettingRow
+            label="Paczka kryształów"
+            detail="Wkrótce — mała / średnia / duża"
+            onClick={() => onNote("Płatności wkrótce")}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
+function TrailIcon({ active }: { active: boolean }) {
+  const spark = active ? "var(--ui-warm)" : "#64748b";
+  const crystal = active ? "var(--ui-ice)" : "#94a3b8";
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden>
+      <circle cx="5.5" cy="20.5" r="1.35" fill={spark} opacity="0.35" />
+      <circle cx="9" cy="17.2" r="1.55" fill={spark} opacity="0.5" />
+      <circle cx="12.2" cy="14.2" r="1.75" fill={spark} opacity="0.7" />
+      <circle cx="15.2" cy="11.5" r="1.9" fill={spark} opacity="0.85" />
+      <path
+        d="M21.2 4.8 25.2 10.2 21.2 15.6 17.2 10.2Z"
+        fill={crystal}
+        fillOpacity="0.95"
+      />
+      <path d="M21.2 7.6 23.4 10.2 21.2 12.8 19 10.2Z" fill={spark} fillOpacity="0.9" />
+    </svg>
+  );
+}
+
+function ShapePreview({ id, active }: { id: CrystalShapeId; active: boolean }) {
+  const fill = active ? "var(--ui-ice)" : "#64748b";
+  if (id === "hex") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+        <path d="M9 1.5 15.5 5v8L9 16.5 2.5 13V5Z" fill={fill} fillOpacity="0.9" />
+      </svg>
+    );
+  }
+  if (id === "star") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+        <path
+          d="M9 1.8 10.8 6.6 15.8 7 12 10.4 13.2 15.4 9 12.8 4.8 15.4 6 10.4 2.2 7 7.2 6.6Z"
+          fill={fill}
+        />
+      </svg>
+    );
+  }
+  if (id === "rune") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+        <path d="M9 2.2 15 14.5H3Z" fill={fill} />
+      </svg>
+    );
+  }
+  if (id === "ring") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+        <circle cx="9" cy="9" r="6.2" fill="none" stroke={fill} strokeWidth="2" />
+        <circle cx="9" cy="9" r="2.2" fill={fill} />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+      <path d="M9 2 15.5 9 9 16 2.5 9Z" fill={fill} />
+    </svg>
+  );
+}
+
 function SettingsScreen({
   save,
+  theme,
   confirmReset,
   onBack,
   onToggleMuted,
@@ -1073,6 +1343,7 @@ function SettingsScreen({
   onReset,
 }: {
   save: GameSave;
+  theme: VisualTheme;
   confirmReset: boolean;
   onBack: () => void;
   onToggleMuted: () => void;
@@ -1089,12 +1360,14 @@ function SettingsScreen({
           label="Dźwięk"
           detail={save.muted ? "Cisza" : "Harfa włączona"}
           pressed={!save.muted}
+          accent={theme.warm}
           onClick={onToggleMuted}
         />
         <SettingRow
           label="Wibracje"
           detail={save.haptics ? "Przy złapaniu kryształu" : "Wyłączone"}
           pressed={save.haptics}
+          accent={theme.warm}
           onClick={onToggleHaptics}
         />
         <SettingRow label="Pojedynek" detail="Wyścig na dwóch telefonach" onClick={onDuel} />
@@ -1129,14 +1402,14 @@ function ScreenHeader({
         type="button"
         onClick={onBack}
         aria-label="Wróć do menu"
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 backdrop-blur-md"
+        className="ui-chip grid h-12 w-12 shrink-0 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
           <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
       <div>
-        <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">{kicker}</p>
+        <p className="ui-muted text-[11px] uppercase tracking-[0.28em]">{kicker}</p>
         <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">{title}</h1>
       </div>
     </div>
@@ -1158,12 +1431,12 @@ function FeatureTile({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[4.5rem] items-center gap-3 rounded-[1.2rem] border border-[#e0f2fe]/16 bg-black/45 px-3 text-left text-[#e0f2fe] backdrop-blur-md active:scale-[0.98]"
+      className="ui-panel flex h-[4.5rem] items-center gap-3 rounded-[1.2rem] border px-3 text-left backdrop-blur-md active:scale-[0.98]"
     >
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-black/30">{children}</span>
       <span className="min-w-0">
         <span className="block text-[15px] font-medium leading-none">{label}</span>
-        <span className="mt-1.5 block text-[11px] text-[#e0f2fe]/50">{detail}</span>
+        <span className="ui-muted mt-1.5 block text-[11px]">{detail}</span>
       </span>
     </button>
   );
@@ -1182,7 +1455,7 @@ function DockTile({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[4.6rem] flex-col items-center justify-center gap-1.5 rounded-[1.15rem] border border-[#e0f2fe]/16 bg-black/45 text-[#e0f2fe] backdrop-blur-md active:scale-[0.98]"
+      className="ui-panel flex h-[4.6rem] flex-col items-center justify-center gap-1.5 rounded-[1.15rem] border backdrop-blur-md active:scale-[0.98]"
     >
       {children}
       <span className="text-[13px] font-normal leading-none">{label}</span>
@@ -1196,27 +1469,30 @@ function SettingRow({
   onClick,
   pressed,
   danger = false,
+  accent,
 }: {
   label: string;
   detail: string;
   onClick: () => void;
   pressed?: boolean;
   danger?: boolean;
+  accent?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
-      className="flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border border-[#e0f2fe]/14 bg-black/45 px-4 text-left backdrop-blur-md"
+      className="ui-panel flex h-[4.75rem] items-center justify-between rounded-[1.15rem] border px-4 text-left backdrop-blur-md"
     >
       <span>
         <span className={`block text-[17px] font-normal ${danger ? "text-[#fecaca]" : ""}`}>{label}</span>
-        <span className="mt-1 block text-[13px] text-[#e0f2fe]/50">{detail}</span>
+        <span className="ui-muted mt-1 block text-[13px]">{detail}</span>
       </span>
       {pressed !== undefined && (
         <span
-          className={`h-8 w-[3.25rem] rounded-full p-1 ${pressed ? "bg-[#f97316]" : "bg-white/15"}`}
+          className="h-8 w-[3.25rem] rounded-full p-1"
+          style={{ background: pressed ? (accent ?? "var(--ui-warm)") : "rgba(255,255,255,0.15)" }}
           aria-hidden="true"
         >
           <span
@@ -1238,10 +1514,10 @@ function Diamond({ className, style }: { className?: string; style?: CSSProperti
   );
 }
 
-function PlayCrystal({ accent }: { accent: string }) {
+function PlayCrystal({ accent, ink }: { accent: string; ink: string }) {
   return (
     <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
-      <path d="M13 1.8 23.2 13 13 24.2 2.8 13Z" fill="#0b1020" fillOpacity="0.12" stroke="#0b1020" strokeWidth="1.4" />
+      <path d="M13 1.8 23.2 13 13 24.2 2.8 13Z" fill={ink} fillOpacity="0.12" stroke={ink} strokeWidth="1.4" />
       <path d="M13 7.2 18.2 13 13 18.8 7.8 13Z" fill={accent} />
     </svg>
   );
@@ -1257,7 +1533,7 @@ function LevelsIcon() {
   );
 }
 
-function LearnIcon() {
+function LearnIcon({ accent = "var(--ui-warm)" }: { accent?: string }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
       <path
@@ -1273,12 +1549,12 @@ function LearnIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="6.2" cy="14.6" r="1.5" fill="#f97316" />
+      <circle cx="6.2" cy="14.6" r="1.5" fill={accent} />
     </svg>
   );
 }
 
-function ShopIcon() {
+function ShopIcon({ accent = "var(--ui-warm)" }: { accent?: string }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
       <path
@@ -1288,7 +1564,7 @@ function ShopIcon() {
         strokeLinejoin="round"
       />
       <path d="M8 8.2V6.4a3 3 0 0 1 6 0v1.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M11 11.2 12.4 14.6 11 13.4 9.6 14.6Z" fill="#f97316" />
+      <path d="M11 11.2 12.4 14.6 11 13.4 9.6 14.6Z" fill={accent} />
     </svg>
   );
 }
@@ -1311,7 +1587,24 @@ function DailyIcon({ accent }: { accent: string }) {
   );
 }
 
-function DuelIcon() {
+function StreakFlame({ accent }: { accent: string }) {
+  return (
+    <svg width="14" height="16" viewBox="0 0 14 16" aria-hidden="true" fill="none">
+      <path
+        d="M7 1.2c1.2 2.1-.2 3.4-.2 5.1 0 1 .6 1.8 1.5 2.2-.2-2.4 2.4-3.1 2.4 1.1 0 2.7-2.1 4.6-4.7 4.6S1.3 12.3 1.3 9.6c0-2.6 1.8-3.8 2.6-5.4C4.6 3 5.4 2.1 7 1.2Z"
+        fill={accent}
+        fillOpacity="0.95"
+      />
+      <path
+        d="M7 9.1c.55 0 1 .55 1 1.25S7.55 11.7 7 11.7s-1-.6-1-1.35.45-1.25 1-1.25Z"
+        fill="currentColor"
+        fillOpacity="0.35"
+      />
+    </svg>
+  );
+}
+
+function DuelIcon({ accent = "var(--ui-warm)" }: { accent?: string }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
       <path
@@ -1321,12 +1614,12 @@ function DuelIcon() {
         strokeLinejoin="round"
       />
       <path d="M7.2 12h6.8" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="16.5" cy="5.8" r="1.55" fill="#f97316" />
+      <circle cx="16.5" cy="5.8" r="1.55" fill={accent} />
     </svg>
   );
 }
 
-function EventIcon({ large = false }: { large?: boolean }) {
+function EventIcon({ large = false, accent = "var(--ui-warm)" }: { large?: boolean; accent?: string }) {
   const size = large ? 28 : 22;
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" aria-hidden="true" fill="none">
@@ -1336,20 +1629,24 @@ function EventIcon({ large = false }: { large?: boolean }) {
         strokeWidth="1.25"
         strokeLinejoin="round"
       />
-      <circle cx="11" cy="11" r="1.4" fill="#f97316" />
+      <circle cx="11" cy="11" r="1.4" fill={accent} />
     </svg>
   );
 }
 
-function AlbumIcon({ count }: { count: number }) {
+function AlbumIcon({ count, accent = "var(--ui-warm)" }: { count: number; accent?: string }) {
   return (
     <span className="relative grid place-items-center">
       <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true" fill="none">
         <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.25" />
-        <path d="M11 5.2 12.2 9.1 16.2 9.3 13.1 11.7 14.1 15.6 11 13.5 7.9 15.6 8.9 11.7 5.8 9.3 9.8 9.1Z" fill="#fbbf24" fillOpacity="0.85" />
+        <path
+          d="M11 5.2 12.2 9.1 16.2 9.3 13.1 11.7 14.1 15.6 11 13.5 7.9 15.6 8.9 11.7 5.8 9.3 9.8 9.1Z"
+          fill={accent}
+          fillOpacity="0.9"
+        />
       </svg>
       {count > 0 && (
-        <span className="absolute -right-1.5 -top-1 text-[9px] tabular-nums text-[#fbbf24]">{count}</span>
+        <span className="ui-accent absolute -right-1.5 -top-1 text-[9px] tabular-nums">{count}</span>
       )}
     </span>
   );

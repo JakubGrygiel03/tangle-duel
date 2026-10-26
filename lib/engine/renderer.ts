@@ -1,3 +1,4 @@
+import type { CrystalShapeId } from "./economy";
 import type { Graph, GraphNode } from "./graph";
 import type { IntersectionHit } from "./intersections";
 import { getTheme, type VisualTheme } from "./themes";
@@ -10,6 +11,7 @@ export type DrawModel = {
   width: number;
   height: number;
   theme?: VisualTheme;
+  crystalShape?: CrystalShapeId;
   /** Tryb Echo: struny widoczne tylko podczas sonaru. */
   echoReveal?: number;
   /** Ślad pyłu za przeciąganym węzłem. */
@@ -29,6 +31,7 @@ type Mote = {
 export class BoardRenderer {
   private motes: Mote[] = [];
   private theme: VisualTheme = getTheme("dusk");
+  private crystalShape: CrystalShapeId = "diamond";
 
   setTheme(theme: VisualTheme): void {
     this.theme = theme;
@@ -37,6 +40,7 @@ export class BoardRenderer {
   draw(ctx: CanvasRenderingContext2D, model: DrawModel): void {
     const { graph, hits, time, bloom, width, height } = model;
     if (model.theme) this.theme = model.theme;
+    if (model.crystalShape) this.crystalShape = model.crystalShape;
     this.ensureMotes();
 
     this.drawBackground(ctx, width, height, time);
@@ -66,8 +70,8 @@ export class BoardRenderer {
     const outline = graph.outline;
     if (!outline || outline.length < 2) return;
     const theme = this.theme;
-    const pulse = 0.12 + 0.06 * Math.sin(time * 1.4);
-    const alpha = pulse + bloom * 0.35;
+    const pulse = 0.18 + 0.1 * Math.sin(time * 1.35);
+    const alpha = Math.min(0.55, pulse + bloom * 0.4);
 
     ctx.save();
     ctx.beginPath();
@@ -78,16 +82,24 @@ export class BoardRenderer {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
     }
-    ctx.strokeStyle = theme.arenaStroke.replace(/[\d.]+\)$/, `${alpha})`);
-    ctx.lineWidth = 1.1;
-    ctx.setLineDash([3.5, 5.5]);
+    ctx.strokeStyle = theme.freeGlow.replace(/[\d.]+\)$/, `${alpha * 0.55})`);
+    ctx.lineWidth = 1.35;
+    ctx.setLineDash([4, 6]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    for (const point of outline) {
+    for (let i = 0; i < outline.length; i++) {
+      const point = outline[i];
+      if (!point) continue;
+      const well = 10 + 1.5 * Math.sin(time * 2.1 + i);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2);
-      ctx.fillStyle = theme.arenaStroke.replace(/[\d.]+\)$/, `${alpha * 1.4})`);
+      ctx.arc(point.x, point.y, well, 0, Math.PI * 2);
+      ctx.strokeStyle = theme.freeGlow.replace(/[\d.]+\)$/, `${alpha * 0.35})`);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.6, 0, Math.PI * 2);
+      ctx.fillStyle = theme.freeCore.replace(/[\d.]+\)$/, `${0.35 + alpha})`);
       ctx.fill();
     }
     ctx.restore();
@@ -394,6 +406,7 @@ export class BoardRenderer {
   ): void {
     const theme = this.theme;
     const radius = 8 + node.grab * 2.6 + bloom * 1.4;
+    const shape = this.crystalShape;
 
     if (node.grab > 0.04) {
       ctx.beginPath();
@@ -405,7 +418,11 @@ export class BoardRenderer {
 
     ctx.save();
     ctx.translate(node.x, node.y);
-    ctx.rotate(Math.PI / 4 + Math.sin(time * 0.7 + node.id) * 0.06);
+    const spin =
+      shape === "ring"
+        ? time * 0.9 + node.id
+        : Math.PI / 4 + Math.sin(time * 0.7 + node.id) * 0.06;
+    ctx.rotate(spin);
     ctx.shadowColor = warm ? theme.tangledGlow : theme.freeGlow;
     ctx.shadowBlur = 12 + node.grab * 12;
 
@@ -416,13 +433,43 @@ export class BoardRenderer {
     facet.addColorStop(1, palette[2]);
 
     ctx.fillStyle = facet;
-    this.diamond(ctx, radius);
+    this.traceShape(ctx, shape, radius);
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
-    this.diamond(ctx, radius * 0.36);
-    ctx.fill();
+
+    if (shape === "ring") {
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.42, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
+      this.traceShape(ctx, shape, radius * 0.36);
+      ctx.fill();
+    }
     ctx.restore();
+  }
+
+  private traceShape(ctx: CanvasRenderingContext2D, shape: CrystalShapeId, radius: number): void {
+    if (shape === "hex") {
+      this.polygon(ctx, radius, 6, Math.PI / 6);
+      return;
+    }
+    if (shape === "star") {
+      this.star(ctx, radius, 5);
+      return;
+    }
+    if (shape === "rune") {
+      this.polygon(ctx, radius, 3, -Math.PI / 2);
+      return;
+    }
+    if (shape === "ring") {
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      return;
+    }
+    this.diamond(ctx, radius);
   }
 
   private diamond(ctx: CanvasRenderingContext2D, radius: number): void {
@@ -431,6 +478,37 @@ export class BoardRenderer {
     ctx.lineTo(radius, 0);
     ctx.lineTo(0, radius);
     ctx.lineTo(-radius, 0);
+    ctx.closePath();
+  }
+
+  private polygon(
+    ctx: CanvasRenderingContext2D,
+    radius: number,
+    sides: number,
+    offset: number,
+  ): void {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const angle = offset + (i / sides) * Math.PI * 2;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  private star(ctx: CanvasRenderingContext2D, radius: number, points: number): void {
+    const inner = radius * 0.42;
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? radius : inner;
+      const angle = -Math.PI / 2 + (i / (points * 2)) * Math.PI * 2;
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
     ctx.closePath();
   }
 

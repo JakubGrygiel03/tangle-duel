@@ -4,14 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { CouchDuel } from "@/components/game/CouchDuel";
 import { GameBoard } from "@/components/game/GameBoard";
 import { ThemeBackdrop } from "@/components/game/ThemeBackdrop";
-import type { SoundPackId } from "@/lib/engine/economy";
+import type { CrystalShapeId, SoundPackId } from "@/lib/engine/economy";
 import {
   openDuelSession,
   randomRoomCode,
   type DuelSession,
   type DuelWire,
 } from "@/lib/net/duel";
-import type { VisualTheme } from "@/lib/engine/themes";
+import { themeChromeVars, type VisualTheme } from "@/lib/engine/themes";
 
 type Phase =
   | { kind: "pick" }
@@ -28,6 +28,7 @@ type DuelLobbyProps = {
   haptics: boolean;
   theme: VisualTheme;
   soundPack?: SoundPackId;
+  crystalShape?: CrystalShapeId;
   trail?: boolean;
   onMuted: (muted: boolean) => void;
   onBack: () => void;
@@ -38,6 +39,7 @@ export function DuelLobby({
   haptics,
   theme,
   soundPack = "harp",
+  crystalShape = "diamond",
   trail = false,
   onMuted,
   onBack,
@@ -202,6 +204,7 @@ export function DuelLobby({
         haptics={haptics}
         theme={theme}
         soundPack={soundPack}
+        crystalShape={crystalShape}
         trail={trail}
         onMuted={onMuted}
         onBack={() => setPhase({ kind: "pick" })}
@@ -220,6 +223,7 @@ export function DuelLobby({
         haptics={haptics}
         theme={theme}
         soundPack={soundPack}
+        crystalShape={crystalShape}
         trail={trail}
         onMenu={() => {
           tearDown();
@@ -251,8 +255,8 @@ export function DuelLobby({
 
   return (
     <div
-      className="game-shell fixed inset-0 flex items-center justify-center text-[#e0f2fe]"
-      style={{ background: theme.ink }}
+      className="theme-chrome game-shell fixed inset-0 flex items-center justify-center"
+      style={{ background: theme.ink, ...themeChromeVars(theme) }}
     >
       <div className="play-bleed">
         <ThemeBackdrop theme={theme} />
@@ -272,7 +276,7 @@ export function DuelLobby({
               onBack();
             }}
             aria-label="Wróć"
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[#e0f2fe]/20 bg-black/40 backdrop-blur-md"
+            className="ui-chip grid h-12 w-12 shrink-0 place-items-center rounded-full border bg-black/40 backdrop-blur-md"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none">
               <path
@@ -285,7 +289,7 @@ export function DuelLobby({
             </svg>
           </button>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">
+            <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">
               {onlineFlow ? "Dwa telefony" : "Rywalizacja"}
             </p>
             <h1 className="text-[2rem] font-light leading-none tracking-[-0.03em]">
@@ -297,45 +301,45 @@ export function DuelLobby({
         <div className="mt-8 flex min-h-0 flex-1 flex-col">
           {phase.kind === "pick" && (
             <>
-              <p className="text-[15px] font-light leading-relaxed text-[#e0f2fe]/70">
+              <p className="ui-muted text-[15px] font-light leading-relaxed">
                 Ten sam układ. Kto pierwszy utrzyma czyste struny, wygrywa — na kanapie albo przez
                 kod.
               </p>
               <button
                 type="button"
                 onClick={() => setPhase({ kind: "couch" })}
-                className="mt-8 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[#0b1020]"
+                className="play-seal mt-8 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem]"
               >
                 <span className="text-[1.25rem] font-medium">Jeden telefon</span>
-                <span className="mt-1 text-[12px] font-normal text-[#0b1020]/55">
+                <span className="mt-1 text-[12px] font-normal opacity-55">
                   Split screen · naprzeciw siebie
                 </span>
               </button>
               <button
                 type="button"
                 onClick={() => setPhase({ kind: "online" })}
-                className="mt-3 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem] border border-[#e0f2fe]/20 bg-black/45"
+                className="ui-panel mt-3 flex h-[4.6rem] w-full flex-col items-center justify-center rounded-[1.35rem] border"
               >
                 <span className="text-[1.15rem] font-medium">Dwa telefony</span>
-                <span className="mt-1 text-[12px] text-[#e0f2fe]/50">Pokój na kod · online</span>
+                <span className="ui-muted mt-1 text-[12px]">Pokój na kod · online</span>
               </button>
             </>
           )}
 
           {phase.kind === "online" && (
             <>
-              <p className="text-[15px] font-light leading-relaxed text-[#e0f2fe]/70">
+              <p className="ui-muted text-[15px] font-light leading-relaxed">
                 Stwórz pokój albo wpisz kod od znajomego. Bez konta — PeerJS łączy telefony.
               </p>
               <button
                 type="button"
                 onClick={() => void startHost()}
-                className="mt-8 flex h-[4.6rem] w-full items-center justify-center rounded-[1.35rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-[1.25rem] font-medium text-[#0b1020]"
+                className="play-seal mt-8 flex h-[4.6rem] w-full items-center justify-center rounded-[1.35rem] text-[1.25rem] font-medium"
               >
                 Stwórz pokój
               </button>
               <div className="mt-5">
-                <label className="block text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">
+                <label className="ui-kicker block text-[11px] uppercase tracking-[0.28em]">
                   Kod znajomego
                 </label>
                 <input
@@ -345,13 +349,13 @@ export function DuelLobby({
                   autoCapitalize="characters"
                   autoCorrect="off"
                   spellCheck={false}
-                  className="mt-2 h-14 w-full rounded-[1.15rem] border border-[#e0f2fe]/20 bg-black/45 px-4 text-center text-2xl font-light tracking-[0.35em] text-[#e0f2fe] outline-none"
+                  className="ui-panel mt-2 h-14 w-full rounded-[1.15rem] border px-4 text-center text-2xl font-light tracking-[0.35em] outline-none"
                   placeholder="•••••"
                 />
                 <button
                   type="button"
                   onClick={() => void startJoin()}
-                  className="mt-3 h-14 w-full rounded-[1.15rem] border border-[#e0f2fe]/20 bg-black/45 text-[15px]"
+                  className="ui-panel mt-3 h-14 w-full rounded-[1.15rem] border text-[15px]"
                 >
                   Dołącz
                 </button>
@@ -361,15 +365,15 @@ export function DuelLobby({
 
           {(phase.kind === "host" || phase.kind === "join") && (
             <div className="mt-6 text-center">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Kod pokoju</p>
+              <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Kod pokoju</p>
               <p className="mt-3 text-5xl font-light tracking-[0.28em]">{phase.code}</p>
-              <p className="mt-6 text-[15px] font-light text-[#e0f2fe]/65">{phase.status}</p>
+              <p className="ui-muted mt-6 text-[15px] font-light">{phase.status}</p>
             </div>
           )}
 
           {phase.kind === "countdown" && (
             <div className="flex flex-1 flex-col items-center justify-center">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-[#e0f2fe]/45">Start</p>
+              <p className="ui-kicker text-[11px] uppercase tracking-[0.28em]">Start</p>
               <p className="mt-4 text-7xl font-light tabular-nums">{phase.seconds}</p>
             </div>
           )}
@@ -377,7 +381,7 @@ export function DuelLobby({
           {phase.kind === "result" && (
             <div className="mt-10 text-center">
               <p className="text-4xl font-light tracking-[-0.03em]">{phase.text}</p>
-              <p className="mt-3 text-[15px] font-light text-[#e0f2fe]/65">{phase.detail}</p>
+              <p className="ui-muted mt-3 text-[15px] font-light">{phase.detail}</p>
               <button
                 type="button"
                 onClick={() => {
@@ -385,7 +389,7 @@ export function DuelLobby({
                   setPhase({ kind: "online" });
                   setJoinInput("");
                 }}
-                className="mt-10 h-14 w-full rounded-[1.15rem] bg-[linear-gradient(180deg,#f7fbff_0%,#d3e9f6_100%)] text-base font-medium text-[#0b1020]"
+                className="play-seal mt-10 h-14 w-full rounded-[1.15rem] text-base font-medium"
               >
                 Jeszcze raz
               </button>
